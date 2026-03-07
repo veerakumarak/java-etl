@@ -7,14 +7,15 @@ import io.github.veerakumarak.etl.file.GenericFileReader;
 import io.github.veerakumarak.etl.parquet.ParquetWriterHelper;
 import io.github.veerakumarak.etl.utils.TemplateUtil;
 import io.github.veerakumarak.fp.Result;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.sql.*;
 import java.util.Map;
 
 public class Extractor {
 
-    private Extractor() {
-    }
+    private static final Logger log = LoggerFactory.getLogger(Extractor.class);
 
     public static QueryProviderStep job(String jobName, IDataSource dataSource) {
         return new Builder(jobName, dataSource);
