@@ -178,4 +178,9 @@ public abstract class BaseDataSource implements IDataSource {
         return RegexUtil.matches("^[a-zA-Z_][a-zA-Z0-9_$]*$", tableName);
     }
 
+    @Override
+    public String getUrl() {
+        return url;
+    }
+
 }
