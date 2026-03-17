@@ -3,7 +3,7 @@ package io.github.veerakumarak.etl;
 import io.github.veerakumarak.etl.entities.ExtractResult;
 import io.github.veerakumarak.etl.datasource.IDataSource;
 import io.github.veerakumarak.etl.file.GenericFileReader;
-import io.github.veerakumarak.etl.sink.ParquetWriterHelper;
+import io.github.veerakumarak.etl.sink.DataSink;
 import io.github.veerakumarak.etl.utils.TemplateUtil;
 import io.github.veerakumarak.fp.Result;
 import org.slf4j.Logger;
@@ -86,7 +86,7 @@ public class Extractor {
                             ps.setFetchSize(fetchSize);
 
                             try (ResultSet rs = ps.executeQuery()) {
-                                return ParquetWriterHelper.writeBatched(writePath, jobName, rs, fetchSize)
+                                return DataSink.write(writePath, jobName, rs, fetchSize)
                                         .map(fileMetaData -> new ExtractResult(fileMetaData.filePath(), fileMetaData.count()))
                                         .get();
                             }
