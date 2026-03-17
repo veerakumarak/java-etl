@@ -3,7 +3,7 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>io.github.veerakumarak</groupId>
-    <artifactId>etl</artifactId>
+    <artifactId>java-etl</artifactId>
     <version>1.0.0</version>
     <packaging>jar</packaging>
 
@@ -51,9 +51,21 @@
             <version>3.4.1</version>
         </dependency>
         <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-aws</artifactId>
+            <version>3.4.1</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.amazonaws</groupId>
+            <artifactId>aws-java-sdk-bundle</artifactId>
+            <version>1.12.780</version>
+        </dependency>
+
+        <dependency>
             <groupId>io.github.veerakumarak</groupId>
             <artifactId>fp</artifactId>
-            <version>5.1.1</version>
+            <version>5.1.2</version>
         </dependency>
         <dependency>
             <groupId>io.github.veerakumarak</groupId>
@@ -64,12 +76,6 @@
             <groupId>io.github.veerakumarak</groupId>
             <artifactId>validations</artifactId>
             <version>3.1.0</version>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.hadoop</groupId>
-            <artifactId>hadoop-aws</artifactId>
-            <version>3.4.0</version>
         </dependency>
 
         <dependency>

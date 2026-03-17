@@ -2,8 +2,7 @@ package io.github.veerakumarak.etl;
 
 import io.github.veerakumarak.etl.datasource.IDataSource;
 import io.github.veerakumarak.etl.entities.LoadResult;
-import io.github.veerakumarak.etl.parquet.ParquetAwsManager;
-import io.github.veerakumarak.etl.parquet.ParquetReaderHelper;
+import io.github.veerakumarak.etl.parquet.ParquetDataBaseHelper;
 import io.github.veerakumarak.etl.utils.RegexUtil;
 import io.github.veerakumarak.fp.Result;
 import io.github.veerakumarak.fp.failures.InvalidRequest;
@@ -81,26 +80,36 @@ public class Loader {
         @Override
         public Result<LoadResult> fromParquet(String readPath) {
             this.readPath = readPath;
-            return build();
+            return execute();
         }
 
-        private Result<LoadResult> build() {
+        private Result<LoadResult> execute() {
             return Result.of(() -> {
-                if (RegexUtil.matches("^[a-zA-Z_][a-zA-Z0-9_$]*$", tableName)) {
+                if (!RegexUtil.matches("^[a-zA-Z_][a-zA-Z0-9_$]*$", tableName)) {
                     throw new InvalidRequest("Invalid Table Name: " + tableName);
                 }
 
-                if (this.truncate) {
-                    try (Connection conn = dataSource.connection().get()) {
-                        log.info("Truncating table: {} before inserting.", this.tableName);
-                        dataSource.truncate(conn, this.tableName).orElseThrow();
+                try (Connection conn = dataSource.connection().get()) {
+                    conn.setAutoCommit(false); // Start transaction
+                    try {
+                        if (this.truncate) {
+                            log.info("Truncating table: {} before inserting.", this.tableName);
+                            dataSource.truncate(conn, this.tableName).orElseThrow();
+                        }
+
+                        // Pass the existing connection to the reader helper
+                        long count = ParquetDataBaseHelper.writeBatched(
+                                readPath, conn, tableName, batchSize
+                        ).orElseThrow();
+
+                        conn.commit(); // Only commit if everything worked
+                        return new LoadResult(count);
+
+                    } catch (Exception e) {
+                        conn.rollback(); // Undo truncate/partial loads on error
+                        throw e;
                     }
                 }
-                long count = ParquetReaderHelper.fromParquet(readPath, dataSource, tableName, batchSize,
-                                ParquetAwsManager.getConfiguration())
-                        .orElseThrow();
-
-                return new LoadResult(count);
             });
         }
 

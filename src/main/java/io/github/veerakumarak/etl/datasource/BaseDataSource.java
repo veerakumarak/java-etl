@@ -28,15 +28,6 @@ public abstract class BaseDataSource implements IDataSource {
     @Override
     public Result<ResultSetMetaData> getSchema(Connection connection, String tableName) {
         return Result.of(() -> {
-            DatabaseMetaData dbMetaData = connection.getMetaData();
-            String productName = dbMetaData.getDatabaseProductName().toLowerCase();
-
-            if (!productName.contains("trino")) {
-                throw new SQLException("Unsupported database product for actual column metadata retrieval: " +
-                        dbMetaData.getDatabaseProductName() +
-                        ". Query needs to be tailored (e.g., for LIMIT 0 equivalent).");
-            }
-
             String query = "SELECT * FROM " + tableName + " LIMIT 0";
 
             try (Statement stmt = connection.createStatement();

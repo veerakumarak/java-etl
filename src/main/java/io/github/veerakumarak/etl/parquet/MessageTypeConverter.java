@@ -9,7 +9,7 @@ import org.apache.parquet.schema.Types;
 import java.sql.ResultSetMetaData;
 
 public class MessageTypeConverter {
-    public static Result<MessageType> getParquetSchemaFromResultSet(String tableName, ResultSetMetaData metaData) {
+    public static Result<MessageType> fromResultSet(String tableName, ResultSetMetaData metaData) {
         return Result.of(() -> {
             int columnCount = metaData.getColumnCount();
 

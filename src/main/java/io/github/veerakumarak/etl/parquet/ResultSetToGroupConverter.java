@@ -1,7 +1,6 @@
 package io.github.veerakumarak.etl.parquet;
 
 import io.github.veerakumarak.fp.Result;
-import io.github.veerakumarak.fp.failures.InternalFailure;
 import org.apache.parquet.example.data.Group;
 import org.apache.parquet.example.data.simple.SimpleGroup;
 import org.apache.parquet.io.api.Binary;
@@ -16,47 +15,22 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoField;
-import java.util.ArrayList;
-import java.util.List;
 
-public class GroupConverter {
+public class ResultSetToGroupConverter {
 
-    private static final Logger log = LoggerFactory.getLogger(GroupConverter.class);
+    private static final Logger log = LoggerFactory.getLogger(ResultSetToGroupConverter.class);
 
-    public static Result<List<Group>> convert(ResultSetMetaData sourceMetaData, ResultSetMetaData targetMetaData, MessageType schema, ResultSet rs) {
-        return Result.of(() -> {
-            List<Group> groups = new ArrayList<>();
-            while (rs.next()) {
-                Result<Group> groupResult = convert(schema, sourceMetaData, targetMetaData, rs);
-                if (groupResult.isFailure()) {
-                    log.error(groupResult.failure().getMessage());
-                    throw new InternalFailure("Unable to convert ResultSet to Group: " + groupResult.failure().getMessage());
-                }
-                groups.add(groupResult.get());
-            }
-            return groups;
-        });
-    }
-
-    /**
-     * Converts a single row from ResultSet to a Parquet Group.
-     * This is a public wrapper for the private convert method, used for batched processing.
-     */
-    public static Result<Group> convertSingleRow(MessageType schema, ResultSetMetaData sourceMetaData, ResultSetMetaData targetMetaData, ResultSet rs) {
-        return convert(schema, sourceMetaData, targetMetaData, rs);
-    }
-
-    private static Result<Group> convert(MessageType schema, ResultSetMetaData sourceMetaData, ResultSetMetaData targetMetaData, ResultSet rs) {
+    public static Result<Group> convert(MessageType schema, ResultSetMetaData metadata, ResultSet rs) {
         return Result.of(() -> {
             Group group = new SimpleGroup(schema);
-            int columnCount = targetMetaData.getColumnCount();
+            int columnCount = metadata.getColumnCount();
             for (int i = 1; i <= columnCount; i++) {
                 // Use getColumnLabel() to get the alias (AS name) from SELECT queries
                 // This ensures we use the alias (e.g., "PrgsvcID") instead of original column name (e.g., "prgsvcid")
-                String columnName = targetMetaData.getColumnLabel(i);
-                int columnType = SqlTypeInferrer.getEffectiveType(targetMetaData, i).orElseThrow();
-                int scale = targetMetaData.getScale(i);
-                int precision = targetMetaData.getPrecision(i);
+                String columnName = metadata.getColumnLabel(i);
+                int columnType = SqlTypeInferrer.getEffectiveType(metadata, i).orElseThrow();
+                int scale = metadata.getScale(i);
+                int precision = metadata.getPrecision(i);
 
                 switch (columnType) {
                     case Types.BOOLEAN:

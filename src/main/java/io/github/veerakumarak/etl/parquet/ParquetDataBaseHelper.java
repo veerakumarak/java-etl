@@ -1,9 +1,11 @@
 package io.github.veerakumarak.etl.parquet;
 
-import io.github.veerakumarak.etl.datasource.IDataSource;
-import io.github.veerakumarak.fp.Pair;
+import io.github.veerakumarak.etl.source.ParquetReaderHelper;
+import io.github.veerakumarak.fp.Failure;
 import io.github.veerakumarak.fp.Result;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.parquet.example.data.Group;
+import org.apache.parquet.hadoop.ParquetReader;
 import org.apache.parquet.schema.LogicalTypeAnnotation;
 import org.apache.parquet.schema.MessageType;
 import org.apache.parquet.schema.PrimitiveType;
@@ -11,15 +13,12 @@ import org.apache.parquet.schema.Type;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.sql.Connection;
-import java.sql.Types;
+import java.sql.*;
 import java.util.List;
 
-public class DataBaseHelper {
+public class ParquetDataBaseHelper {
 
-    private static final Logger log = LoggerFactory.getLogger(DataBaseHelper.class);
-
-    private static final int DEFAULT_BATCH_SIZE = 100;
+    private static final Logger log = LoggerFactory.getLogger(ParquetDataBaseHelper.class);
 
     private static Integer getSqlType(Type field) {
         LogicalTypeAnnotation logicalType = field.getLogicalTypeAnnotation();
@@ -111,37 +110,69 @@ public class DataBaseHelper {
         }
     }
 
-    private static Pair<Object, Integer> extractFieldValue(Group group, Type field, MessageType schema) {
-        try {
-            int sqlType = getSqlType(field);
-            Object value = getValueOrNull(group, field.getName(), sqlType);
-            return Pair.of(value, sqlType);
-        } catch (Exception e) {
-            log.error("Unexpected error '{}' when converting field {}. Inserting null String", e.getMessage(), field.getName());
-            return Pair.of(null, Types.VARCHAR);
-        }
-    }
-
-    public static Result<Long> insertBatch(IDataSource dataSource, Connection connection, List<Group> groups, String tableName, MessageType schema, Integer batchSize) {
-        if (groups.isEmpty()) return Result.ok(0L);
-
-        List<Type> fields = schema.getFields();
-        List<String> columnNames = fields.stream().map(Type::getName).toList();
-        String sql = buildInsertSql(columnNames, tableName);
-
-        List<List<Pair<Object, Integer>>> batchValuesAndTypes = groups.stream()
-                .map(group -> fields.stream()
-                        .map(field -> extractFieldValue(group, field, schema))
-                        .toList())
-                .toList();
-
-        Integer finalBatchSize = batchSize != null? batchSize: DEFAULT_BATCH_SIZE;
-        return dataSource.insertBatch(connection, sql, batchValuesAndTypes, finalBatchSize);
-    }
-
     private static String buildInsertSql(List<String> columnNames, String tableName) {
         String columns = String.join(", ", columnNames);
         String marks = String.join(", ", columnNames.stream().map(c -> "?").toList());
         return "INSERT INTO " + tableName + " (" + columns + ") VALUES (" + marks + ")";
     }
+
+    private record FieldMeta(
+            String name,
+            Type f,
+            Integer sqlType
+    ){}
+    public static Result<Long> writeBatched(String filePath, Connection connection, String tableName, Integer batchSize) {
+        return Result.of(() -> {
+            Configuration conf = ParquetAwsManager.getConfiguration();
+
+            // 1. Get Schema from Footer (Fast, no data read)
+            MessageType schema = ParquetReaderHelper.readSchema(filePath, conf).orElseThrow();
+
+            List<FieldMeta> fieldMetas = schema.getFields().stream()
+                    .map(f -> new FieldMeta(f.getName(), f, getSqlType(f)))
+                    .toList();
+
+            String sql = buildInsertSql(fieldMetas.stream().map(FieldMeta::name).toList(), tableName);
+
+            // 2. Open Reader and Statement
+            try (ParquetReader<Group> reader = ParquetReaderHelper.createReader(filePath, conf);
+                 PreparedStatement pstmt = connection.prepareStatement(sql)) {
+
+                long count = 0;
+                Group group;
+
+                // 3. Stream through the file
+                while ((group = reader.read()) != null) {
+                    writeOne(pstmt, group, fieldMetas).orThrow();
+                    count++;
+
+                    // Execute batch based on user-defined size
+                    if (count % batchSize == 0) {
+                        pstmt.executeBatch();
+                        log.info("Batch executed at {} records for table: {}", count, tableName);
+                    }
+                }
+
+                // 4. Final partial batch flush
+                if (count % batchSize != 0) {
+                    pstmt.executeBatch();
+                    log.info("Final batch executed. Total records: {}", count);
+                }
+
+                return count;
+            }
+        });
+    }
+
+    private static Failure writeOne(PreparedStatement pstmt, Group group, List<FieldMeta> metas) {
+        return Failure.of(() -> {
+            for (int i = 0; i < metas.size(); i++) {
+                FieldMeta meta = metas.get(i);
+                Object value = getValueOrNull(group, meta.name(), meta.sqlType());
+                pstmt.setObject(i + 1, value, meta.sqlType());
+            }
+            pstmt.addBatch();
+        });
+    }
+
 }

@@ -1,10 +1,9 @@
 package io.github.veerakumarak.etl;
 
-import io.github.veerakumarak.etl.entities.FileMetaData;
 import io.github.veerakumarak.etl.entities.ExtractResult;
 import io.github.veerakumarak.etl.datasource.IDataSource;
 import io.github.veerakumarak.etl.file.GenericFileReader;
-import io.github.veerakumarak.etl.parquet.ParquetWriterHelper;
+import io.github.veerakumarak.etl.sink.ParquetWriterHelper;
 import io.github.veerakumarak.etl.utils.TemplateUtil;
 import io.github.veerakumarak.fp.Result;
 import org.slf4j.Logger;
@@ -31,6 +30,8 @@ public class Extractor {
 
     public interface FetchSizeStep {
         WriterStep withFetchSize(int fetchSize);
+
+        Result<ExtractResult> toParquet(String writePath);
     }
 
     public interface WriterStep {
@@ -48,6 +49,7 @@ public class Extractor {
         public Builder(String jobName, IDataSource dataSource) {
             this.jobName = jobName;
             this.dataSource = dataSource;
+            this.fetchSize = 1;
         }
 
         @Override
@@ -71,29 +73,25 @@ public class Extractor {
         @Override
         public Result<ExtractResult> toParquet(String writePath) {
             this.writePath = writePath;
-            return build();
+            return execute();
         }
 
-        private Result<ExtractResult> build() {
-            return Result.of(() -> {
-                String queryTemplate = GenericFileReader.readFile(queryPath)
-                        .expect("unable to read SQL file");
+        private Result<ExtractResult> execute() {
+            return GenericFileReader.readFile(queryPath)
+                    .map(template -> TemplateUtil.render(template, parameters))
+                    .flatMap(query -> Result.of(() -> {
+                        try (Connection conn = dataSource.connection().get();
+                             PreparedStatement ps = conn.prepareStatement(query)) {
 
-                String query = TemplateUtil.render(queryTemplate, parameters);
+                            ps.setFetchSize(fetchSize);
 
-                try (Connection conn = dataSource.connection().get();
-                     PreparedStatement ps = conn.prepareStatement(query)) {
-
-                    ps.setFetchSize(fetchSize);
-
-                    try (ResultSet rs = ps.executeQuery()) {
-
-                        FileMetaData fileMetaData = ParquetWriterHelper.toFile(writePath, jobName, rs).get();
-
-                        return new ExtractResult(fileMetaData.filePath(), fileMetaData.count());
-                    }
-                }
-            });
+                            try (ResultSet rs = ps.executeQuery()) {
+                                return ParquetWriterHelper.writeBatched(writePath, jobName, rs, fetchSize)
+                                        .map(fileMetaData -> new ExtractResult(fileMetaData.filePath(), fileMetaData.count()))
+                                        .get();
+                            }
+                        }
+                    }));
         }
     }
 
