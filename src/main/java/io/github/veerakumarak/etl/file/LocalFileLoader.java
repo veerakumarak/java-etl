@@ -1,5 +1,6 @@
 package io.github.veerakumarak.etl.file;
 
+import io.github.veerakumarak.etl.utils.Mapper;
 import io.github.veerakumarak.fp.Result;
 
 import java.nio.charset.StandardCharsets;
@@ -20,4 +21,8 @@ public class LocalFileLoader implements FileLoader {
         });
     }
 
+    public <T> Result<T> load(String path, Class<T> clazz) {
+        return read(path)
+                .flatMap(content -> Mapper.deserialize(content, clazz));
+    }
 }

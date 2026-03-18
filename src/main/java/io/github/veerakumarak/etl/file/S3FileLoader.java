@@ -28,4 +28,11 @@ public class S3FileLoader implements FileLoader {
             return objectBytes.asUtf8String();
         });
     }
+
+    @Override
+    public <T> Result<T> load(String path, Class<T> clazz) {
+        return null;
+    }
+
+
 }

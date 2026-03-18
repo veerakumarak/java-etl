@@ -1,5 +1,6 @@
 package io.github.veerakumarak.etl.file;
 
+import io.github.veerakumarak.etl.utils.Mapper;
 import io.github.veerakumarak.fp.Result;
 import io.github.veerakumarak.fp.failures.InvalidRequest;
 
@@ -19,7 +20,9 @@ public class ClassFileLoader implements FileLoader {
     public Result<String> read(String path){
         return Result.of(() -> {
             String cleanPath = path.replace(PREFIX, "");
-            cleanPath = cleanPath.startsWith("/") ? cleanPath.substring(1) : cleanPath;
+            if (cleanPath.startsWith("/")) {
+                cleanPath = cleanPath.substring(1);
+            }
             try (InputStream is = Thread.currentThread().getContextClassLoader().getResourceAsStream(cleanPath)) {
                 if (is == null) throw new InvalidRequest("Classpath resource not found: " + cleanPath);
                 return new String(is.readAllBytes(), StandardCharsets.UTF_8);
@@ -27,5 +30,11 @@ public class ClassFileLoader implements FileLoader {
 //                        .lines().collect(Collectors.joining("\n"));
             }
         });
+    }
+
+    @Override
+    public <T> Result<T> load(String path, Class<T> clazz) {
+        return read(path)
+                .flatMap(content -> Mapper.deserialize(content, clazz));
     }
 }

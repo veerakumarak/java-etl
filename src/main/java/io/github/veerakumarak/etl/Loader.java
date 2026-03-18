@@ -15,12 +15,8 @@ public class Loader {
 
     private static final Logger log = LoggerFactory.getLogger(Loader.class);
 
-    public static ScriptProviderStep job(String jobName, IDataSource dataSource) {
+    public static TableNameStep job(String jobName, IDataSource dataSource) {
         return new Builder(jobName, dataSource);
-    }
-
-    public interface ScriptProviderStep {
-        TableNameStep withScript(String scriptPath);
     }
 
     public interface TableNameStep {
@@ -39,10 +35,9 @@ public class Loader {
         Result<LoadResult> fromParquet(String writePath);
     }
 
-    private static class Builder implements ScriptProviderStep, TableNameStep, TruncateStep, BatchSizeStep, WriterStep {
+    private static class Builder implements TableNameStep, TruncateStep, BatchSizeStep, WriterStep {
         private final String jobName;
         private final IDataSource dataSource;
-        private String scriptPath;
         private String tableName;
         private boolean truncate;
         private int batchSize;
@@ -51,12 +46,6 @@ public class Loader {
         public Builder(String jobName, IDataSource dataSource) {
             this.jobName = jobName;
             this.dataSource = dataSource;
-        }
-
-        @Override
-        public TableNameStep withScript(String scriptPath) {
-            this.scriptPath = scriptPath;
-            return this;
         }
 
         @Override
@@ -92,9 +81,9 @@ public class Loader {
                 try (Connection conn = dataSource.connection().get()) {
                     conn.setAutoCommit(false); // Start transaction
                     try {
-                        if (this.truncate) {
-                            log.info("Truncating table: {} before inserting.", this.tableName);
-                            dataSource.truncate(conn, this.tableName).orElseThrow();
+                        if (truncate) {
+                            log.info("Truncating table: {} before inserting.", tableName);
+                            dataSource.truncate(conn, tableName).orElseThrow();
                         }
 
                         // Pass the existing connection to the reader helper

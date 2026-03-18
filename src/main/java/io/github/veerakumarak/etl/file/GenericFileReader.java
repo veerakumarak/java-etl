@@ -16,7 +16,15 @@ public class GenericFileReader {
                 .filter(loader -> loader.canHandle(path))
                 .findFirst()
                 .map(loader -> loader.read(path))
-                .orElse(Result.failure("can not read the source file"));
+                .orElse(Result.failure("can not read the file"));
+    }
+
+    public static <T> Result<T> readJson(String path, Class<T> clazz) {
+        return loaders.stream()
+                .filter(loader -> loader.canHandle(path))
+                .findFirst()
+                .map(loader -> loader.load(path, clazz))
+                .orElse(Result.failure("can not read the json file"));
     }
 
 //    public static void main(String[] args) {
