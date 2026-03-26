@@ -5,6 +5,7 @@ import io.github.veerakumarak.etl.parquet.GroupToClassConverter;
 import io.github.veerakumarak.etl.parquet.ParquetAwsManager;
 import io.github.veerakumarak.etl.parquet.data.DataAnnotationHelper;
 import io.github.veerakumarak.fp.Result;
+import io.github.veerakumarak.fp.failures.EntityNotFound;
 import io.github.veerakumarak.fp.failures.InternalFailure;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
@@ -73,7 +74,7 @@ public class ParquetReaderHelper {
         }
     }
 
-    private record ReaderContext<T>(
+/*    private record ReaderContext<T>(
             ParquetReader<Group> reader,
             Constructor<?> constructor,
             Field[] classFields,
@@ -100,32 +101,64 @@ public class ParquetReaderHelper {
             return new ReaderContext<>(reader, constructor, classFields, fieldsMap);
         });
     }
+*/
+    public static <T> Result<Stream<T>> readStream(String filePath, Class<T> tClass) {
+        return Result.of(() -> {
+            Configuration configuration = ParquetAwsManager.getConfiguration();
 
-    public static <T> Result<Stream<T>> readStream(String filePath, Class<T> tClass, boolean relaxedValidation) {
-        return prepareReaderContext(filePath, tClass, relaxedValidation).map(ctx -> {
-            Iterator<T> iterator = new Iterator<>() {
-                private T nextRecord;
+            MessageType schema = readSchema(filePath, configuration).orElseThrow();
+            List<Type> parquetFields = schema.getFields();
+            Map<String, Type> fieldsMap = parquetFields.stream()
+                    .collect(Collectors.toMap(Type::getName, field -> field));
+
+            Field[] classFields = tClass.getDeclaredFields();
+            Constructor<?> constructor = ClassHelper.getAllArgsConstructor(tClass)
+                    .orElseThrow(() -> new InternalFailure("AllArgsConstructor missing: " + tClass.getName()));
+
+            validateFields(classFields, parquetFields, tClass, false);
+            return readStream(filePath).orElseThrow().map(group -> {
+                try {
+                    Object[] values = GroupToClassConverter.convert(group, classFields, fieldsMap, false);
+                    return (T) constructor.newInstance(values);
+                } catch (Exception e) {
+                    throw new InternalFailure("Parquet stream read failed: " + e);
+                }
+            });
+        });
+    }
+
+    public static <T> Result<List<T>> readList(String filePath, Class<T> tClass) {
+        return readStream(filePath, tClass).map(stream -> {
+            try (stream) {
+                return stream.toList();
+            }
+        });
+    }
+
+    public static Result<Stream<Group>> readStream(String filePath) {
+        return Result.of(() -> {
+            Configuration configuration = ParquetAwsManager.getConfiguration();
+            ParquetReader<Group> reader = createReader(filePath, configuration);
+
+            Iterator<Group> iterator = new Iterator<>() {
+                private Group nextRecord;
 
                 @Override
                 public boolean hasNext() {
                     try {
                         if (nextRecord == null) {
-                            Group group = ctx.reader().read();
-                            if (group != null) {
-                                Object[] values = GroupToClassConverter.convert(group, ctx.classFields(), ctx.fieldsMap(), relaxedValidation);
-                                nextRecord = (T) ctx.constructor().newInstance(values);
-                            }
+                            nextRecord = reader.read();
                         }
                         return nextRecord != null;
                     } catch (Exception e) {
-                        throw new RuntimeException("Parquet stream read failed", e);
+                        throw new InternalFailure("Parquet stream read failed: " + e);
                     }
                 }
 
                 @Override
-                public T next() {
-                    if (!hasNext()) throw new NoSuchElementException();
-                    T res = nextRecord;
+                public Group next() {
+                    if (!hasNext()) throw new EntityNotFound("No more records to read");
+                    Group res = nextRecord;
                     nextRecord = null;
                     return res;
                 }
@@ -134,20 +167,22 @@ public class ParquetReaderHelper {
             return StreamSupport.stream(Spliterators.spliteratorUnknownSize(iterator, 0), false)
                     .onClose(() -> {
                         try {
-                            ctx.reader().close();
+                            reader.close();
                         } catch (IOException e) {
                             throw new RuntimeException(e);
                         }
                     });
+
         });
     }
 
-    public static <T> Result<List<T>> readList(String filePath, Class<T> tClass, boolean relaxedValidation) {
-        return readStream(filePath, tClass, relaxedValidation).map(stream -> {
+    public static Result<List<Group>> readList(String filePath) {
+        return readStream(filePath).map(stream -> {
             try (stream) {
                 return stream.toList();
             }
         });
     }
+
 
 }
