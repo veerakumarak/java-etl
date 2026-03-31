@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 
 import java.sql.*;
 import java.util.Map;
+import java.util.Set;
 
 public class Extractor {
 
@@ -25,7 +26,11 @@ public class Extractor {
     }
 
     public interface ParametersStep {
-        FetchSizeStep withParameters(Map<String, String> parameters);
+        PartitionKeysStep withParameters(Map<String, String> parameters);
+    }
+
+    public interface PartitionKeysStep {
+        FetchSizeStep withPartitionKeys(Set<String> partitionKeys);
     }
 
     public interface FetchSizeStep {
@@ -38,11 +43,12 @@ public class Extractor {
         Result<ExtractResult> toParquet(String writePath);
     }
 
-    private static class Builder implements QueryProviderStep, ParametersStep, FetchSizeStep, WriterStep {
+    private static class Builder implements QueryProviderStep, ParametersStep, PartitionKeysStep, FetchSizeStep, WriterStep {
         private final String jobName;
         private final IDataSource dataSource;
         private String queryPath;
         private Map<String, String> parameters;
+        private Set<String> partitionKeys;
         private int fetchSize;
         private String writePath;
 
@@ -59,8 +65,14 @@ public class Extractor {
         }
 
         @Override
-        public FetchSizeStep withParameters(Map<String, String> parameters) {
+        public PartitionKeysStep withParameters(Map<String, String> parameters) {
             this.parameters = parameters;
+            return this;
+        }
+
+        @Override
+        public FetchSizeStep withPartitionKeys(Set<String> partitionKeys) {
+            this.partitionKeys = partitionKeys;
             return this;
         }
 

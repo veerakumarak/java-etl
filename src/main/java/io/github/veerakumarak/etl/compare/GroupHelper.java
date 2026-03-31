@@ -1,7 +1,7 @@
 package io.github.veerakumarak.etl.compare;
 
 import io.github.veerakumarak.etl.parquet.ClassHelper;
-import io.github.veerakumarak.etl.parquet.GroupToClassConverter;
+import io.github.veerakumarak.etl.parquet.converters.GroupToClassConverter;
 import io.github.veerakumarak.fp.failures.InternalFailure;
 import org.apache.parquet.example.data.Group;
 import org.apache.parquet.schema.GroupType;
@@ -11,7 +11,6 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.util.Comparator;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;

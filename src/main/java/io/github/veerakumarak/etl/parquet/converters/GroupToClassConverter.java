@@ -1,22 +1,16 @@
-package io.github.veerakumarak.etl.parquet;
+package io.github.veerakumarak.etl.parquet.converters;
 
 import io.github.veerakumarak.etl.parquet.data.DataAnnotationHelper;
 import io.github.veerakumarak.etl.utils.DateUtil;
-import io.github.veerakumarak.fp.Result;
-import io.github.veerakumarak.fp.failures.InternalFailure;
 import org.apache.parquet.example.data.Group;
-import org.apache.parquet.example.data.simple.SimpleGroupFactory;
 import org.apache.parquet.io.api.Binary;
 import org.apache.parquet.schema.LogicalTypeAnnotation;
-import org.apache.parquet.schema.MessageType;
 import org.apache.parquet.schema.PrimitiveType;
 import org.apache.parquet.schema.Type;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.time.*;

@@ -1,5 +1,6 @@
-package io.github.veerakumarak.etl.parquet;
+package io.github.veerakumarak.etl.parquet.converters;
 
+import io.github.veerakumarak.etl.parquet.SqlTypeInferrer;
 import io.github.veerakumarak.fp.Result;
 import org.apache.parquet.example.data.Group;
 import org.apache.parquet.example.data.simple.SimpleGroup;

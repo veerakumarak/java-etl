@@ -1,7 +1,7 @@
 package io.github.veerakumarak.etl.source;
 
 import io.github.veerakumarak.etl.parquet.ClassHelper;
-import io.github.veerakumarak.etl.parquet.GroupToClassConverter;
+import io.github.veerakumarak.etl.parquet.converters.GroupToClassConverter;
 import io.github.veerakumarak.etl.parquet.ParquetAwsManager;
 import io.github.veerakumarak.etl.parquet.data.DataAnnotationHelper;
 import io.github.veerakumarak.fp.Result;
@@ -23,7 +23,6 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
-import java.sql.*;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;

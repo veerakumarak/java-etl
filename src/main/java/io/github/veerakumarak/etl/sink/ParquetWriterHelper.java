@@ -3,13 +3,15 @@ package io.github.veerakumarak.etl.sink;
 import io.github.veerakumarak.etl.entities.FileMetaData;
 import io.github.veerakumarak.etl.parquet.MessageTypeConverter;
 import io.github.veerakumarak.etl.parquet.ParquetAwsManager;
-import io.github.veerakumarak.etl.parquet.ResultSetToGroupConverter;
+import io.github.veerakumarak.etl.parquet.converters.ClassToGroupConverter;
+import io.github.veerakumarak.etl.parquet.converters.ResultSetToGroupConverter;
 import io.github.veerakumarak.fp.Result;
 import io.github.veerakumarak.fp.failures.InternalFailure;
 import io.github.veerakumarak.fp.failures.InvalidRequest;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.parquet.example.data.Group;
+import org.apache.parquet.example.data.simple.SimpleGroupFactory;
 import org.apache.parquet.hadoop.ParquetFileWriter;
 import org.apache.parquet.hadoop.ParquetWriter;
 import org.apache.parquet.hadoop.example.ExampleParquetWriter;
@@ -21,8 +23,10 @@ import java.io.IOException;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Objects;
+import java.util.stream.Stream;
 
 public class ParquetWriterHelper {
 
@@ -63,6 +67,46 @@ public class ParquetWriterHelper {
                             .orElseThrow(() -> new InternalFailure("Could not get group from result set"));
                     batch.add(group);
 
+                    if (batch.size() >= batchSize) {
+                        for (Group g : batch) writer.write(g);
+                        rowCount += batch.size();
+                        batch.clear();
+                    }
+                }
+                if (!batch.isEmpty()) {
+                    for (Group g : batch) writer.write(g);
+                    rowCount += batch.size();
+                }
+            }
+
+            //ToDo partition prefixer is pending
+            log.info("Batched write from resultset complete. Total rows: {}", rowCount);
+            return new FileMetaData(filePath, (int) rowCount, "");
+        });
+    }
+
+    protected static <T> Result<FileMetaData> writeBatched(String outputPath, String tableName, Integer batchSize, Stream<T> tStream, Class<T> tClass) {
+        return Result.of(() -> {
+            if (Objects.isNull(tStream)) {
+                throw new InternalFailure("Data stream is null");
+            }
+            if (batchSize == null || batchSize <= 0) {
+                throw new InvalidRequest("Batch size must be positive");
+            }
+
+            MessageType schema = MessageTypeConverter.fromClass(tClass);
+
+            SimpleGroupFactory groupFactory = new SimpleGroupFactory(schema);
+
+            String filePath = outputPath + "/" + tableName + ".parquet";
+
+            long rowCount = 0;
+            try (ParquetWriter<Group> writer = createWriter(filePath, schema, ParquetAwsManager.getConfiguration())) {
+                List<Group> batch = new ArrayList<>(batchSize);
+                Iterator<T> iterator = tStream.iterator();
+                while (iterator.hasNext()) {
+                    T tDatum = iterator.next();
+                    batch.add(ClassToGroupConverter.toGroup(tDatum, groupFactory));
                     if (batch.size() >= batchSize) {
                         for (Group g : batch) writer.write(g);
                         rowCount += batch.size();

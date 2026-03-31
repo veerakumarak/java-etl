@@ -1,14 +1,63 @@
 package io.github.veerakumarak.etl.parquet;
 
+import io.github.veerakumarak.etl.parquet.data.DataAnnotationHelper;
 import io.github.veerakumarak.fp.Result;
 import org.apache.parquet.schema.LogicalTypeAnnotation;
 import org.apache.parquet.schema.MessageType;
 import org.apache.parquet.schema.PrimitiveType;
 import org.apache.parquet.schema.Types;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.sql.ResultSetMetaData;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.util.Map;
+import java.util.Objects;
+import java.util.function.BiConsumer;
 
 public class MessageTypeConverter {
+
+    // Static type handlers map for better performance (created once)
+    private static final Map<Class<?>, BiConsumer<String, Types.MessageTypeBuilder>> TYPE_HANDLERS = Map.ofEntries(
+            Map.entry(int.class, (name, b) -> b.required(PrimitiveType.PrimitiveTypeName.INT32).named(name)),
+            Map.entry(long.class, (name, b) -> b.required(PrimitiveType.PrimitiveTypeName.INT64).named(name)),
+            Map.entry(double.class, (name, b) -> b.required(PrimitiveType.PrimitiveTypeName.DOUBLE).named(name)),
+            Map.entry(float.class, (name, b) -> b.required(PrimitiveType.PrimitiveTypeName.FLOAT).named(name)),
+            Map.entry(boolean.class, (name, b) -> b.required(PrimitiveType.PrimitiveTypeName.BOOLEAN).named(name)),
+            Map.entry(char.class, (name, b) -> b.required(PrimitiveType.PrimitiveTypeName.BINARY).as(LogicalTypeAnnotation.stringType()).named(name)),
+            Map.entry(String.class, (name, b) -> b.optional(PrimitiveType.PrimitiveTypeName.BINARY).as(LogicalTypeAnnotation.stringType()).named(name)),
+            Map.entry(Integer.class, (name, b) -> b.optional(PrimitiveType.PrimitiveTypeName.INT32).named(name)),
+            Map.entry(Long.class, (name, b) -> b.optional(PrimitiveType.PrimitiveTypeName.INT64).named(name)),
+            Map.entry(Double.class, (name, b) -> b.optional(PrimitiveType.PrimitiveTypeName.DOUBLE).named(name)),
+            Map.entry(Float.class, (name, b) -> b.optional(PrimitiveType.PrimitiveTypeName.FLOAT).named(name)),
+            Map.entry(Boolean.class, (name, b) -> b.optional(PrimitiveType.PrimitiveTypeName.BOOLEAN).named(name)),
+            Map.entry(Character.class, (name, b) -> b.optional(PrimitiveType.PrimitiveTypeName.BINARY).as(LogicalTypeAnnotation.stringType()).named(name)),
+            Map.entry(LocalDateTime.class, (name, b) -> b.optional(PrimitiveType.PrimitiveTypeName.INT64).as(LogicalTypeAnnotation.timestampType(true, LogicalTypeAnnotation.TimeUnit.MILLIS)).named(name)),
+            Map.entry(LocalTime.class, (name, b) -> b.optional(PrimitiveType.PrimitiveTypeName.INT32).as(LogicalTypeAnnotation.timeType(true, LogicalTypeAnnotation.TimeUnit.MILLIS)).named(name)),
+            Map.entry(LocalDate.class, (name, b) -> b.optional(PrimitiveType.PrimitiveTypeName.INT32).as(LogicalTypeAnnotation.dateType()).named(name))
+    );
+
+    public static MessageType fromClass(Class<?> tClass) {
+        Types.MessageTypeBuilder builder = Types.buildMessage();
+
+        for (Field field : tClass.getDeclaredFields()) {
+            // Skip static fields (e.g., constants) and synthetic fields (e.g., $jacocoData from code coverage)
+            if (Modifier.isStatic(field.getModifiers()) || field.isSynthetic()) {
+                continue;
+            }
+            String name = DataAnnotationHelper.getName(field);
+            Class<?> type = field.getType();
+            BiConsumer<String, Types.MessageTypeBuilder> handler = TYPE_HANDLERS.get(type);
+            if (Objects.isNull(handler)) {
+                throw new IllegalArgumentException("Unsupported record component type: " + type.getName());
+            }
+            handler.accept(name, builder);
+        }
+        return builder.named(tClass.getSimpleName());
+    }
+
     public static Result<MessageType> fromResultSet(String tableName, ResultSetMetaData metaData) {
         return Result.of(() -> {
             int columnCount = metaData.getColumnCount();
