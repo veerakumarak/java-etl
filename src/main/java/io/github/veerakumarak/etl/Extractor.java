@@ -4,14 +4,15 @@ import io.github.veerakumarak.etl.entities.ExtractResult;
 import io.github.veerakumarak.etl.datasource.IDataSource;
 import io.github.veerakumarak.etl.file.GenericFileReader;
 import io.github.veerakumarak.etl.sink.DataSink;
+import io.github.veerakumarak.etl.utils.FileType;
 import io.github.veerakumarak.etl.utils.TemplateUtil;
 import io.github.veerakumarak.fp.Result;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.sql.*;
+import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 public class Extractor {
 
@@ -30,7 +31,7 @@ public class Extractor {
     }
 
     public interface PartitionKeysStep {
-        FetchSizeStep withPartitionKeys(Set<String> partitionKeys);
+        FetchSizeStep withPartitionKeys(List<String> partitionKeys);
     }
 
     public interface FetchSizeStep {
@@ -48,7 +49,7 @@ public class Extractor {
         private final IDataSource dataSource;
         private String queryPath;
         private Map<String, String> parameters;
-        private Set<String> partitionKeys;
+        private List<String> partitionKeys;
         private int fetchSize;
         private String writePath;
 
@@ -71,7 +72,7 @@ public class Extractor {
         }
 
         @Override
-        public FetchSizeStep withPartitionKeys(Set<String> partitionKeys) {
+        public FetchSizeStep withPartitionKeys(List<String> partitionKeys) {
             this.partitionKeys = partitionKeys;
             return this;
         }
@@ -98,8 +99,8 @@ public class Extractor {
                             ps.setFetchSize(fetchSize);
 
                             try (ResultSet rs = ps.executeQuery()) {
-                                return DataSink.write(writePath, jobName, rs, fetchSize)
-                                        .map(fileMetaData -> new ExtractResult(fileMetaData.filePath(), fileMetaData.count()))
+                                return DataSink.write(writePath, FileType.PARQUET, jobName, rs, fetchSize, partitionKeys)
+                                        .map(ExtractResult::new)
                                         .get();
                             }
                         }

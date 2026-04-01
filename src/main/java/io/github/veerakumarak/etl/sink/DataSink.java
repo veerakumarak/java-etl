@@ -1,6 +1,7 @@
 package io.github.veerakumarak.etl.sink;
 
 import io.github.veerakumarak.etl.entities.FileMetaData;
+import io.github.veerakumarak.etl.utils.FileType;
 import io.github.veerakumarak.fp.Result;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,26 +14,20 @@ public class DataSink {
 
     private static final Logger log = LoggerFactory.getLogger(DataSink.class);
 
-    public static Result<FileMetaData> write(String outputPath, String tableName, ResultSet resultSet, Integer batchSize) {
-        if (outputPath.endsWith(".parquet")) {
-            return ParquetWriterHelper.writeBatched(outputPath, tableName, resultSet, batchSize);
+    public static Result<FileMetaData> write(String writePath, FileType fileType, String tableName, ResultSet resultSet, Integer batchSize, List<String> partitionKeys) {
+        if (fileType == FileType.PARQUET) {
+            return ParquetWriterHelper.writeBatched(writePath, tableName, resultSet, batchSize, partitionKeys);
         }
-//        else if (outputPath.endsWith(".csv")) {
-//            return toCsv(path, rs, batchSize);
-//        }
-        log.error("Unsupported output path: " + outputPath);
-        return Result.failure("Unsupported format");
+        log.error("Unsupported output path: " + writePath);
+        return Result.failure("Unsupported file format provided");
     }
 
-    public static <T> Result<FileMetaData> writeStream(String outputPath, String tableName, Integer batchSize, Stream<T> data, Class<T> tClass) {
-        if (outputPath.endsWith(".parquet")) {
-            return ParquetWriterHelper.writeBatched(outputPath, tableName, batchSize, data, tClass);
+    public static <T> Result<FileMetaData> writeStream(String writePath, FileType fileType, String tableName, Integer batchSize, Stream<T> data, Class<T> tClass, List<String> partitionKeys) {
+        if (fileType == FileType.PARQUET) {
+            return ParquetWriterHelper.writeBatched(writePath, tableName, batchSize, data, tClass, partitionKeys);
         }
-//        else if (outputPath.endsWith(".csv")) {
-//            return toCsv(path, rs, batchSize);
-//        }
-        log.error("Unsupported output path: " + outputPath);
-        return Result.failure("Unsupported format");
+        log.error("Unsupported output path: " + writePath);
+        return Result.failure("Unsupported file format provided");
     }
 
 }
