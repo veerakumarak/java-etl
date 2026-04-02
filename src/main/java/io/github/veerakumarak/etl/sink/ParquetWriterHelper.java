@@ -64,7 +64,6 @@ public class ParquetWriterHelper {
                 Group group = ResultSetToGroupConverter.convert(schema, metaData, resultSet)
                         .orElseThrow(() -> new InternalFailure("Could not get group from result set"));
                 batch.add(group);
-
                 if (batch.size() >= batchSize) {
                     for (Group g : batch) {
                         write(schema, g, writers, partitionCounts, writePath, tableName, partitionKeys).orThrow();
@@ -84,7 +83,7 @@ public class ParquetWriterHelper {
             return new FileMetaData(writePath,
                     partitionCounts,
                     partitionCounts.entrySet().stream()
-                            .map(entry -> getFilePath(writePath, entry.toString(), tableName))
+                            .map(entry -> getFilePath(writePath, entry.getKey(), tableName))
                             .collect(Collectors.toSet()));
         });
     }
@@ -96,7 +95,6 @@ public class ParquetWriterHelper {
     private static Failure write(MessageType schema, Group group, Map<String, ParquetWriter<Group>> writers, Map<String, Long> partitionCounts, String writePath, String tableName, List<String> partitionKeys) {
         return Failure.of(() -> {
             String partitionPrefix = ParquetPartitionHelper.getPartitionPrefix(schema, partitionKeys, group).orElseThrow();
-
             ParquetWriter<Group> writer = writers.computeIfAbsent(partitionPrefix, val -> {
                 String filePath = getFilePath(writePath, partitionPrefix, tableName);
                 try {
@@ -105,7 +103,7 @@ public class ParquetWriterHelper {
                     throw new InternalFailure(e.getMessage());
                 }
             });
-
+            partitionCounts.merge(partitionPrefix, 1L, Long::sum);
             writer.write(group);
         });
     }
@@ -151,7 +149,7 @@ public class ParquetWriterHelper {
             return new FileMetaData(writePath,
                     partitionCounts,
                     partitionCounts.entrySet().stream()
-                            .map(entry -> getFilePath(writePath, entry.toString(), tableName))
+                            .map(entry -> getFilePath(writePath, entry.getKey(), tableName))
                             .collect(Collectors.toSet()));
         });
     }

@@ -14,8 +14,14 @@ public class ParquetPartitionHelper {
 
     private static final Logger log = LoggerFactory.getLogger(ParquetPartitionHelper.class);
 
+    private static final String DEFAULT_PARTITION_NAME = "default";
+
     public static Result<String> getPartitionPrefix(MessageType schema, List<String> partitionKeys, Group group) {
         return Result.of(() -> {
+            if (partitionKeys.isEmpty()) {
+                return DEFAULT_PARTITION_NAME;
+            }
+            log.info(group.toString());
             List<String> segments = partitionKeys.stream()
                     .map(fieldName -> {
                         if (!schema.containsField(fieldName)) {
@@ -24,17 +30,22 @@ public class ParquetPartitionHelper {
 
                         int fieldIndex = schema.getFieldIndex(fieldName);
                         if (fieldIndex < 0 || group.getFieldRepetitionCount(fieldIndex) == 0) {
-                            throw new InternalFailure("partition key '" + fieldName + "' is not present in this group");
+                            return null;
+//                            throw new InternalFailure("partition key '" + fieldName + "' is not present in this group");
                         }
 
                         String extractedValue = group.getValueToString(fieldIndex, 0);
                         if (Objects.isNull(extractedValue) || extractedValue.isEmpty()) {
-                            throw new InternalFailure("partition key '" + fieldName + "' has null or empty value");
+                            return null;
+//                            throw new InternalFailure("partition key '" + fieldName + "' has null or empty value");
                         }
                         return fieldName + "=" + extractedValue;
                     })
+                    .filter(Objects::nonNull)
                     .toList();
-
+            if (segments.isEmpty()) {
+                return DEFAULT_PARTITION_NAME;
+            }
             return String.join("/", segments);
         });
     }

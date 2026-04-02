@@ -67,16 +67,16 @@
             <artifactId>fp</artifactId>
             <version>5.2.0</version>
         </dependency>
-        <dependency>
-            <groupId>io.github.veerakumarak</groupId>
-            <artifactId>jsend</artifactId>
-            <version>3.0.0</version>
-        </dependency>
-        <dependency>
-            <groupId>io.github.veerakumarak</groupId>
-            <artifactId>validations</artifactId>
-            <version>3.1.0</version>
-        </dependency>
+<!--        <dependency>-->
+<!--            <groupId>io.github.veerakumarak</groupId>-->
+<!--            <artifactId>jsend</artifactId>-->
+<!--            <version>3.0.0</version>-->
+<!--        </dependency>-->
+<!--        <dependency>-->
+<!--            <groupId>io.github.veerakumarak</groupId>-->
+<!--            <artifactId>validations</artifactId>-->
+<!--            <version>3.1.0</version>-->
+<!--        </dependency>-->
 
         <dependency>
             <groupId>org.slf4j</groupId>
