@@ -4,7 +4,7 @@
 
     <groupId>io.github.veerakumarak</groupId>
     <artifactId>java-etl</artifactId>
-    <version>3.0.0</version>
+    <version>3.0.1</version>
     <packaging>jar</packaging>
 
     <name>${project.groupId}:${project.artifactId}</name>
@@ -82,6 +82,7 @@
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
             <version>2.0.17</version> <!-- Use the latest version -->
+            <scope>provided</scope>
         </dependency>
 <!--        <dependency>-->
 <!--            <groupId>org.projectlombok</groupId>-->
