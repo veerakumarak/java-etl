@@ -30,10 +30,10 @@ public class ParquetDataBaseHelper {
             else if (logicalType.equals(LogicalTypeAnnotation.dateType())) {
                 return Types.DATE;
             }
-            else if (logicalType.equals(LogicalTypeAnnotation.timestampType(true, LogicalTypeAnnotation.TimeUnit.MILLIS))) {
+            else if (logicalType instanceof LogicalTypeAnnotation.TimestampLogicalTypeAnnotation) {
                 return Types.TIMESTAMP;
             }
-            else if (logicalType.equals(LogicalTypeAnnotation.timeType(true, LogicalTypeAnnotation.TimeUnit.MILLIS))) {
+            else if (logicalType instanceof LogicalTypeAnnotation.TimeLogicalTypeAnnotation) {
                 return Types.TIME;
             }
             else {
