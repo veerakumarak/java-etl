@@ -72,13 +72,11 @@ public class ClassToGroupConverter {
                 } else if (value instanceof String s) {
                     group.append(name, s);
                 } else if (value instanceof LocalTime lt) {
-                    group.append(name, (int) TimeUnit.NANOSECONDS.toMillis(lt.toNanoOfDay()));
+                    appendLocalTime(group, name, lt);
                 } else if (value instanceof LocalDate ld) {
                     group.append(name, (int) ld.toEpochDay());
                 } else if (value instanceof LocalDateTime ldt) {
-                    group.append(name, ldt.toInstant(ZoneOffset.UTC).toEpochMilli());
-                } else {
-                    // Default / No-op
+                    appendLocalDateTime(group, name, ldt);
                 }
                 // Java 21
 //                switch (value) {
@@ -100,6 +98,53 @@ public class ClassToGroupConverter {
             }
         }
         return group;
+    }
+
+    private static void appendLocalTime(Group group, String fieldName, LocalTime lt) {
+        if (!group.getType().containsField(fieldName)) {
+            return;
+        }
+
+        Type fieldType = group.getType().getType(fieldName);
+        LogicalTypeAnnotation logicalType = fieldType.getLogicalTypeAnnotation();
+
+        if (logicalType instanceof LogicalTypeAnnotation.TimeLogicalTypeAnnotation timeType) {
+            switch (timeType.getUnit()) {
+                case MICROS -> group.append(fieldName, TimeUnit.NANOSECONDS.toMicros(lt.toNanoOfDay()));
+                case NANOS -> group.append(fieldName, lt.toNanoOfDay());
+                case MILLIS -> group.append(fieldName, (int) TimeUnit.NANOSECONDS.toMillis(lt.toNanoOfDay()));
+            }
+        } else {
+            // Default fallback to MILLIS (INT32) if no logical type annotation is defined
+            group.append(fieldName, (int) TimeUnit.NANOSECONDS.toMillis(lt.toNanoOfDay()));
+        }
+    }
+
+    private static void appendLocalDateTime(Group group, String fieldName, LocalDateTime ldt) {
+        if (!group.getType().containsField(fieldName)) {
+            return;
+        }
+
+        Type fieldType = group.getType().getType(fieldName);
+        LogicalTypeAnnotation logicalType = fieldType.getLogicalTypeAnnotation();
+        Instant instant = ldt.toInstant(ZoneOffset.UTC);
+
+        if (logicalType instanceof LogicalTypeAnnotation.TimestampLogicalTypeAnnotation tsType) {
+            switch (tsType.getUnit()) {
+                case MICROS -> {
+                    long micros = Math.addExact(Math.multiplyExact(instant.getEpochSecond(), 1_000_000L), instant.getNano() / 1_000);
+                    group.append(fieldName, micros);
+                }
+                case NANOS -> {
+                    long nanos = Math.addExact(Math.multiplyExact(instant.getEpochSecond(), 1_000_000_000L), instant.getNano());
+                    group.append(fieldName, nanos);
+                }
+                case MILLIS -> group.append(fieldName, instant.toEpochMilli());
+            }
+        } else {
+            // Default fallback to MILLIS (INT64) if no logical type annotation is defined
+            group.append(fieldName, instant.toEpochMilli());
+        }
     }
 
 //    public static <T> List<T> fromGroup(List<Group> groups, Class<T> tClass, List<Type> parquetFields, Field[] classFields, boolean relaxedValidation) {

@@ -88,17 +88,36 @@ public class ResultSetToGroupConverter {
                         Time t = rs.getTime(columnName);
                         if (!rs.wasNull()) {
                             LocalTime localTime = t.toLocalTime();
-                            long milliOfDay = localTime.get(ChronoField.MILLI_OF_DAY);
-                            group.add(columnName, (int) milliOfDay);
-                            // group.add(columnName, t.getTime());
+                            if (scale > 6) {
+                                // NANOS -> INT64
+                                group.add(columnName, localTime.toNanoOfDay());
+                            } else if (scale > 3) {
+                                // MICROS -> INT64
+                                group.add(columnName, localTime.toNanoOfDay() / 1_000L);
+                            } else {
+                                // MILLIS -> INT32
+                                group.add(columnName, localTime.get(ChronoField.MILLI_OF_DAY));
+                            }
                         }
                         break;
                     case Types.TIMESTAMP:
                         Timestamp ts = rs.getTimestamp(columnName);
+                        if (!rs.wasNull() && ts != null) {
+                            long epochSecond = ts.getTime() / 1_000L;
+                            int nanos = ts.getNanos();
 
-                        if (ts != null) {
-                            long epochMillis = ts.getTime();
-                            group.add(columnName, epochMillis);
+                            if (scale > 6) {
+                                // NANOS -> INT64
+                                long epochNanos = Math.addExact(Math.multiplyExact(epochSecond, 1_000_000_000L), nanos);
+                                group.add(columnName, epochNanos);
+                            } else if (scale > 3) {
+                                // MICROS -> INT64
+                                long epochMicros = Math.addExact(Math.multiplyExact(epochSecond, 1_000_000L), nanos / 1_000L);
+                                group.add(columnName, epochMicros);
+                            } else {
+                                // MILLIS -> INT64
+                                group.add(columnName, ts.getTime());
+                            }
                         }
                         break;
                     case Types.DECIMAL:
@@ -118,6 +137,8 @@ public class ResultSetToGroupConverter {
                         }
                         break;
                     case Types.VARBINARY:
+                    case Types.BINARY:
+                    case Types.BLOB:
                         byte[] bytesValue = rs.getBytes(columnName);
                         if (!rs.wasNull()) {
                             // Use Parquet's Binary class
@@ -132,6 +153,5 @@ public class ResultSetToGroupConverter {
             }
             return group;
         });
-
     }
 }

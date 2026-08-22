@@ -71,6 +71,7 @@ public class MessageTypeConverter {
                 int precision = metaData.getPrecision(i);
                 int scale = metaData.getScale(i);
                 int nullable = metaData.isNullable(i);
+                LogicalTypeAnnotation.TimeUnit timeUnit;
 
                 switch (columnType) {
                     case java.sql.Types.BOOLEAN:
@@ -139,23 +140,37 @@ public class MessageTypeConverter {
                                 .named(columnName));
                         break;
                     case java.sql.Types.TIME:
+                        int timeScale = metaData.getScale(i);
+                        PrimitiveType.PrimitiveTypeName primitiveType;
+                        if (timeScale > 6) {
+                            timeUnit = LogicalTypeAnnotation.TimeUnit.NANOS;
+                            primitiveType = PrimitiveType.PrimitiveTypeName.INT64;
+                        } else if (timeScale > 3) {
+                            timeUnit = LogicalTypeAnnotation.TimeUnit.MICROS;
+                            primitiveType = PrimitiveType.PrimitiveTypeName.INT64;
+                        } else {
+                            timeUnit = LogicalTypeAnnotation.TimeUnit.MILLIS;
+                            primitiveType = PrimitiveType.PrimitiveTypeName.INT32;
+                        }
                         builder.addField((nullable == ResultSetMetaData.columnNoNulls
-                                ? Types.required(PrimitiveType.PrimitiveTypeName.INT32)
-                                .as(LogicalTypeAnnotation.timeType(false,
-                                        LogicalTypeAnnotation.TimeUnit.MILLIS))
-                                : Types.optional(PrimitiveType.PrimitiveTypeName.INT32)
-                                .as(LogicalTypeAnnotation.timeType(false,
-                                        LogicalTypeAnnotation.TimeUnit.MILLIS)))
+                                ? Types.required(primitiveType).as(LogicalTypeAnnotation.timeType(false, timeUnit))
+                                : Types.optional(primitiveType).as(LogicalTypeAnnotation.timeType(false, timeUnit)))
                                 .named(columnName));
                         break;
                     case java.sql.Types.TIMESTAMP:
+                        int fractionalScale = metaData.getScale(i);
+                        if (fractionalScale > 6) {
+                            timeUnit = LogicalTypeAnnotation.TimeUnit.NANOS;
+                        } else if (fractionalScale > 3) {
+                            timeUnit = LogicalTypeAnnotation.TimeUnit.MICROS;
+                        } else {
+                            timeUnit = LogicalTypeAnnotation.TimeUnit.MILLIS;
+                        }
                         builder.addField((nullable == ResultSetMetaData.columnNoNulls
                                 ? Types.required(PrimitiveType.PrimitiveTypeName.INT64).as(
-                                LogicalTypeAnnotation.timestampType(false,
-                                        LogicalTypeAnnotation.TimeUnit.MILLIS))
+                                LogicalTypeAnnotation.timestampType(false, timeUnit))
                                 : Types.optional(PrimitiveType.PrimitiveTypeName.INT64).as(
-                                LogicalTypeAnnotation.timestampType(false,
-                                        LogicalTypeAnnotation.TimeUnit.MILLIS)))
+                                LogicalTypeAnnotation.timestampType(false, timeUnit)))
                                 .named(columnName));
                         break;
                     case java.sql.Types.DECIMAL:
