@@ -77,8 +77,8 @@ public class GroupToClassConverter {
             // Handle TIMESTAMP -> LocalDate conversion (extract date part from timestamp)
             if (logicalType instanceof LogicalTypeAnnotation.TimestampLogicalTypeAnnotation tsType &&
                     primitiveTypeName == PrimitiveType.PrimitiveTypeName.INT64) {
-                long epochMillis = group.getLong(fieldName, 0);
-                return Instant.ofEpochMilli(epochMillis).atZone(ZoneId.of("UTC")).toLocalDate();
+                Instant instant = convertFieldToInstant(group, fieldName, tsType);
+                return instant.atZone(ZoneId.of("UTC")).toLocalDate();
             }
             // Handle raw INT64 timestamp without logical type annotation -> LocalDate
             if (primitiveTypeName == PrimitiveType.PrimitiveTypeName.INT64 && logicalType == null) {
@@ -87,20 +87,31 @@ public class GroupToClassConverter {
             }
             throw new IllegalArgumentException("Unsupported type for LocalDate: " + primitiveType + " with logical type: " + logicalType);
         } else if (logicalType instanceof LogicalTypeAnnotation.TimeLogicalTypeAnnotation timeType && targetType == LocalTime.class) {
-            if (timeType.getUnit() == LogicalTypeAnnotation.TimeUnit.MILLIS) {
-                return switch (primitiveTypeName) {
-                    case INT32 -> LocalTime.ofNanoOfDay(TimeUnit.MILLISECONDS.toNanos(group.getInteger(fieldName, 0)));
-                    default ->
-                            throw new IllegalArgumentException("TIME(MILLIS) logical type should be stored as INT32. Found: " + primitiveTypeName);
-                };
-            } else {
-                throw new IllegalArgumentException("Unsupported TIME unit: " + timeType.getUnit() + ". Only MILLIS is supported for LocalTime with INT32.");
-            }
+            return switch (timeType.getUnit()) {
+                case MILLIS -> {
+                    if (primitiveTypeName != PrimitiveType.PrimitiveTypeName.INT32) {
+                        throw new IllegalArgumentException("TIME(MILLIS) logical type should be stored as INT32. Found: " + primitiveTypeName);
+                    }
+                    yield LocalTime.ofNanoOfDay(TimeUnit.MILLISECONDS.toNanos(group.getInteger(fieldName, 0)));
+                }
+                case MICROS -> {
+                    if (primitiveTypeName != PrimitiveType.PrimitiveTypeName.INT64) {
+                        throw new IllegalArgumentException("TIME(MICROS) logical type should be stored as INT64. Found: " + primitiveTypeName);
+                    }
+                    yield LocalTime.ofNanoOfDay(TimeUnit.MICROSECONDS.toNanos(group.getLong(fieldName, 0)));
+                }
+                case NANOS -> {
+                    if (primitiveTypeName != PrimitiveType.PrimitiveTypeName.INT64) {
+                        throw new IllegalArgumentException("TIME(NANOS) logical type should be stored as INT64. Found: " + primitiveTypeName);
+                    }
+                    yield LocalTime.ofNanoOfDay(group.getLong(fieldName, 0));
+                }
+            };
         } else if (targetType == LocalDateTime.class) {
             if (logicalType instanceof LogicalTypeAnnotation.TimestampLogicalTypeAnnotation tsType &&
-                    tsType.getUnit() == LogicalTypeAnnotation.TimeUnit.MILLIS &&
                     primitiveTypeName == PrimitiveType.PrimitiveTypeName.INT64) {
-                return DateUtil.convertEpochMiliSecToLocalDateTime(group.getLong(fieldName, 0), ZoneId.of("UTC"));
+                Instant instant = convertFieldToInstant(group, fieldName, tsType);
+                return LocalDateTime.ofInstant(instant, ZoneId.of("UTC"));
             } else if (primitiveTypeName == PrimitiveType.PrimitiveTypeName.INT64 && logicalType == null) {
                 return DateUtil.convertEpochMiliSecToLocalDateTime(group.getLong(fieldName, 0), ZoneId.of("UTC"));
             } else {
@@ -139,6 +150,15 @@ public class GroupToClassConverter {
                 }
             };
         }
+    }
+
+    private static Instant convertFieldToInstant(Group group, String fieldName, LogicalTypeAnnotation.TimestampLogicalTypeAnnotation tsType) {
+        long val = group.getLong(fieldName, 0);
+        return switch (tsType.getUnit()) {
+            case MILLIS -> Instant.ofEpochMilli(val);
+            case MICROS -> Instant.ofEpochSecond(val / 1_000_000, (val % 1_000_000) * 1_000);
+            case NANOS -> Instant.ofEpochSecond(val / 1_000_000_000, val % 1_000_000_000);
+        };
     }
 
 }
