@@ -3,9 +3,11 @@ package io.github.veerakumarak.etl.parquet.converters;
 import io.github.veerakumarak.etl.parquet.ClassHelper;
 import io.github.veerakumarak.etl.parquet.data.DataAnnotationHelper;
 import io.github.veerakumarak.etl.utils.DateUtil;
+import io.github.veerakumarak.fp.Pair;
 import io.github.veerakumarak.fp.Result;
 import io.github.veerakumarak.fp.failures.InternalFailure;
 import org.apache.parquet.example.data.Group;
+import org.apache.parquet.example.data.simple.SimpleGroup;
 import org.apache.parquet.example.data.simple.SimpleGroupFactory;
 import org.apache.parquet.io.api.Binary;
 import org.apache.parquet.schema.LogicalTypeAnnotation;
@@ -37,49 +39,51 @@ public class ClassToGroupConverter {
 //                .toList();
 //    }
 
-    public static <T> Group toGroup(T t, SimpleGroupFactory groupFactory, Set<String> ignoreFieldNames) {
-        Group group = groupFactory.newGroup();
-        Class<?> tClass = t.getClass();
+    public static <T> Result<Pair<Group, Group>> toGroup(T t, Pair<MessageType, MessageType> schemas, Set<String> partitionColumns) {
+        return Result.of(() -> {
+            Group dataGroup = new SimpleGroup(schemas.getFirst());
+            Group partitionGroup = new SimpleGroup(schemas.getSecond());
 
-        for (Field field : tClass.getDeclaredFields()) {
-            String name = DataAnnotationHelper.getName(field);
+            Class<?> tClass = t.getClass();
 
-            if (field.isSynthetic() || Modifier.isStatic(field.getModifiers())) {
-                continue;
-            }
+            for (Field field : tClass.getDeclaredFields()) {
+                String name = DataAnnotationHelper.getName(field);
 
-            if (ignoreFieldNames.contains(name)) {
-                continue;
-            }
-
-            try {
-                field.setAccessible(true);
-                Object value = field.get(t);
-                if (Objects.isNull(value)) {
+                if (field.isSynthetic() || Modifier.isStatic(field.getModifiers())) {
                     continue;
                 }
-                if (value instanceof Integer i) {
-                    group.append(name, i);
-                } else if (value instanceof Long l) {
-                    group.append(name, l);
-                } else if (value instanceof Double v) {
-                    group.append(name, v);
-                } else if (value instanceof Float v) {
-                    group.append(name, v);
-                } else if (value instanceof Boolean b) {
-                    group.append(name, b);
-                } else if (value instanceof Character c) {
-                    group.append(name, String.valueOf(c));
-                } else if (value instanceof String s) {
-                    group.append(name, s);
-                } else if (value instanceof LocalTime lt) {
-                    appendLocalTime(group, name, lt);
-                } else if (value instanceof LocalDate ld) {
-                    group.append(name, (int) ld.toEpochDay());
-                } else if (value instanceof LocalDateTime ldt) {
-                    appendLocalDateTime(group, name, ldt);
-                }
-                // Java 21
+
+                boolean isPartition = partitionColumns.contains(name);
+                Group group = isPartition ? partitionGroup : dataGroup;
+
+                try {
+                    field.setAccessible(true);
+                    Object value = field.get(t);
+                    if (Objects.isNull(value)) {
+                        continue;
+                    }
+                    if (value instanceof Integer i) {
+                        group.append(name, i);
+                    } else if (value instanceof Long l) {
+                        group.append(name, l);
+                    } else if (value instanceof Double v) {
+                        group.append(name, v);
+                    } else if (value instanceof Float v) {
+                        group.append(name, v);
+                    } else if (value instanceof Boolean b) {
+                        group.append(name, b);
+                    } else if (value instanceof Character c) {
+                        group.append(name, String.valueOf(c));
+                    } else if (value instanceof String s) {
+                        group.append(name, s);
+                    } else if (value instanceof LocalTime lt) {
+                        appendLocalTime(group, name, lt);
+                    } else if (value instanceof LocalDate ld) {
+                        group.append(name, (int) ld.toEpochDay());
+                    } else if (value instanceof LocalDateTime ldt) {
+                        appendLocalDateTime(group, name, ldt);
+                    }
+                    // Java 21
 //                switch (value) {
 //                    case Integer i -> group.append(name, i);
 //                    case Long l -> group.append(name, l);
@@ -94,11 +98,13 @@ public class ClassToGroupConverter {
 //                    default -> {
 //                    }
 //                }
-            } catch (IllegalAccessException e) {
-                throw new InternalFailure("creating fields from group value caused issue");
+                } catch (IllegalAccessException e) {
+                    throw new InternalFailure("creating fields from group value caused issue");
+                }
             }
-        }
-        return group;
+            return Pair.of(dataGroup, partitionGroup);
+        });
+
     }
 
     private static void appendLocalTime(Group group, String fieldName, LocalTime lt) {

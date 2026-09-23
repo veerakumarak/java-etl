@@ -1,6 +1,7 @@
 package io.github.veerakumarak.etl.parquet.converters;
 
 import io.github.veerakumarak.etl.parquet.SqlTypeInferrer;
+import io.github.veerakumarak.fp.Pair;
 import io.github.veerakumarak.fp.Result;
 import org.apache.parquet.example.data.Group;
 import org.apache.parquet.example.data.simple.SimpleGroup;
@@ -19,18 +20,19 @@ public class ResultSetToGroupConverter {
 
     private static final Logger log = LoggerFactory.getLogger(ResultSetToGroupConverter.class);
 
-    public static Result<Group> convert(MessageType schema, ResultSetMetaData metadata, ResultSet rs, Set<String> ignoreColumns) {
+    public static Result<Pair<Group,Group>> convert(Pair<MessageType, MessageType> schemas, ResultSetMetaData metadata, ResultSet rs, Set<String> partitionColumns) {
         return Result.of(() -> {
-            Group group = new SimpleGroup(schema);
+            Group dataGroup = new SimpleGroup(schemas.getFirst());
+            Group partitionGroup = new SimpleGroup(schemas.getSecond());
+
             int columnCount = metadata.getColumnCount();
             for (int i = 1; i <= columnCount; i++) {
                 // Use getColumnLabel() to get the alias (AS name) from SELECT queries
                 // This ensures we use the alias (e.g., "PrgsvcID") instead of original column name (e.g., "prgsvcid")
                 String columnName = metadata.getColumnLabel(i);
 
-                if (ignoreColumns.contains(columnName)) {
-                    continue;
-                }
+                boolean isPartition = partitionColumns.contains(columnName);
+                Group group = isPartition ? partitionGroup : dataGroup;
 
                 int columnType = SqlTypeInferrer.getEffectiveType(metadata, i).orElseThrow();
                 int scale = metadata.getScale(i);
@@ -157,7 +159,7 @@ public class ResultSetToGroupConverter {
                     }
                 }
             }
-            return group;
+            return Pair.of(dataGroup, partitionGroup);
         });
     }
 }
