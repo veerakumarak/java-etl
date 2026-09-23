@@ -14,6 +14,7 @@ import java.math.BigDecimal;
 import java.sql.*;
 import java.time.LocalTime;
 import java.time.temporal.ChronoField;
+import java.util.Objects;
 import java.util.Set;
 
 public class ResultSetToGroupConverter {
@@ -22,8 +23,13 @@ public class ResultSetToGroupConverter {
 
     public static Result<Pair<Group,Group>> convert(Pair<MessageType, MessageType> schemas, ResultSetMetaData metadata, ResultSet rs, Set<String> partitionColumns) {
         return Result.of(() -> {
+
+            if (Objects.isNull(schemas.getSecond()) && !partitionColumns.isEmpty()) {
+                throw new IllegalArgumentException("Partition columns are specified but no partition schema is provided");
+            }
+
             Group dataGroup = new SimpleGroup(schemas.getFirst());
-            Group partitionGroup = new SimpleGroup(schemas.getSecond());
+            Group partitionGroup = Objects.nonNull(schemas.getSecond()) ? new SimpleGroup(schemas.getSecond()): null;
 
             int columnCount = metadata.getColumnCount();
             for (int i = 1; i <= columnCount; i++) {
