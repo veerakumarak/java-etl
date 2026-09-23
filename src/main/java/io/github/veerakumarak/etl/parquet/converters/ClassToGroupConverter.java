@@ -41,8 +41,13 @@ public class ClassToGroupConverter {
 
     public static <T> Result<Pair<Group, Group>> toGroup(T t, Pair<MessageType, MessageType> schemas, Set<String> partitionColumns) {
         return Result.of(() -> {
+
+            if (Objects.isNull(schemas.getSecond()) && !partitionColumns.isEmpty()) {
+                throw new IllegalArgumentException("Partition columns are specified but no partition schema is provided");
+            }
+
             Group dataGroup = new SimpleGroup(schemas.getFirst());
-            Group partitionGroup = new SimpleGroup(schemas.getSecond());
+            Group partitionGroup = Objects.nonNull(schemas.getSecond()) ? new SimpleGroup(schemas.getSecond()): null;
 
             Class<?> tClass = t.getClass();
 
