@@ -1,6 +1,7 @@
 package io.github.veerakumarak.etl.parquet.converters;
 
 import io.github.veerakumarak.etl.parquet.ClassHelper;
+import io.github.veerakumarak.etl.parquet.Int96TimestampUtil;
 import io.github.veerakumarak.etl.parquet.data.DataAnnotationHelper;
 import io.github.veerakumarak.etl.utils.DateUtil;
 import io.github.veerakumarak.fp.Pair;
@@ -22,6 +23,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.sql.Timestamp;
 import java.time.*;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
@@ -132,26 +134,9 @@ public class ClassToGroupConverter {
             return;
         }
 
-        Type fieldType = group.getType().getType(fieldName);
-        LogicalTypeAnnotation logicalType = fieldType.getLogicalTypeAnnotation();
         Instant instant = ldt.toInstant(ZoneOffset.UTC);
-
-        if (logicalType instanceof LogicalTypeAnnotation.TimestampLogicalTypeAnnotation tsType) {
-            switch (tsType.getUnit()) {
-                case MICROS -> {
-                    long micros = Math.addExact(Math.multiplyExact(instant.getEpochSecond(), 1_000_000L), instant.getNano() / 1_000);
-                    group.append(fieldName, micros);
-                }
-                case NANOS -> {
-                    long nanos = Math.addExact(Math.multiplyExact(instant.getEpochSecond(), 1_000_000_000L), instant.getNano());
-                    group.append(fieldName, nanos);
-                }
-                case MILLIS -> group.append(fieldName, instant.toEpochMilli());
-            }
-        } else {
-            // Default fallback to MILLIS (INT64) if no logical type annotation is defined
-            group.append(fieldName, instant.toEpochMilli());
-        }
+        Timestamp ts = Timestamp.from(instant);
+        group.append(fieldName, Int96TimestampUtil.toInt96(ts));
     }
 
 //    public static <T> List<T> fromGroup(List<Group> groups, Class<T> tClass, List<Type> parquetFields, Field[] classFields, boolean relaxedValidation) {
