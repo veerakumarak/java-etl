@@ -6,6 +6,7 @@ import io.github.veerakumarak.fp.Result;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.parquet.example.data.Group;
 import org.apache.parquet.hadoop.ParquetReader;
+import org.apache.parquet.io.api.Binary;
 import org.apache.parquet.schema.LogicalTypeAnnotation;
 import org.apache.parquet.schema.MessageType;
 import org.apache.parquet.schema.PrimitiveType;
@@ -76,8 +77,8 @@ public class ParquetDataBaseHelper {
                 return java.sql.Date.valueOf(java.time.LocalDate.ofEpochDay(daysFromEpoch));
 
             case Types.TIMESTAMP:
-                long epochMillis = group.getLong(fieldName, 0);
-                return java.sql.Timestamp.from(java.time.Instant.ofEpochMilli(epochMillis));
+                Binary int96 = group.getInt96(fieldName, 0);
+                return Int96TimestampUtil.fromInt96(int96);
 
             case Types.TIME:
                 int millisOfDay = group.getInteger(fieldName, 0);

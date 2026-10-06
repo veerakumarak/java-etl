@@ -1,6 +1,7 @@
 package io.github.veerakumarak.etl.parquet.converters;
 
 import io.github.veerakumarak.etl.parquet.SqlTypeInferrer;
+import io.github.veerakumarak.etl.parquet.Int96TimestampUtil;
 import io.github.veerakumarak.fp.Pair;
 import io.github.veerakumarak.fp.Result;
 import org.apache.parquet.example.data.Group;
@@ -128,10 +129,7 @@ public class ResultSetToGroupConverter {
                     case Types.TIMESTAMP:
                         Timestamp ts = rs.getTimestamp(columnName);
                         if (!rs.wasNull() && ts != null) {
-                            long epochSecond = ts.getTime() / 1_000L;
-                            int nanos = ts.getNanos();
-                            long epochNanos = Math.addExact(Math.multiplyExact(epochSecond, 1_000_000_000L), nanos);
-                            group.add(columnName, epochNanos);
+                            group.add(columnName, Int96TimestampUtil.toInt96(ts));
                         }
                         break;
                     case Types.DECIMAL:

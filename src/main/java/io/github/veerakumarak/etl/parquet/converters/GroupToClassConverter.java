@@ -1,5 +1,6 @@
 package io.github.veerakumarak.etl.parquet.converters;
 
+import io.github.veerakumarak.etl.parquet.Int96TimestampUtil;
 import io.github.veerakumarak.etl.parquet.data.DataAnnotationHelper;
 import io.github.veerakumarak.etl.utils.DateUtil;
 import org.apache.parquet.example.data.Group;
@@ -13,6 +14,7 @@ import org.slf4j.LoggerFactory;
 import java.lang.reflect.Field;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.sql.Timestamp;
 import java.time.*;
 import java.util.Arrays;
 import java.util.Map;
@@ -108,7 +110,11 @@ public class GroupToClassConverter {
                 }
             };
         } else if (targetType == LocalDateTime.class) {
-            if (logicalType instanceof LogicalTypeAnnotation.TimestampLogicalTypeAnnotation tsType &&
+            if (primitiveTypeName == PrimitiveType.PrimitiveTypeName.INT96) {
+                Binary int96 = group.getInt96(fieldName, 0);
+                Timestamp ts = Int96TimestampUtil.fromInt96(int96);
+                return ts.toLocalDateTime();
+            } else if (logicalType instanceof LogicalTypeAnnotation.TimestampLogicalTypeAnnotation tsType &&
                     primitiveTypeName == PrimitiveType.PrimitiveTypeName.INT64) {
                 Instant instant = convertFieldToInstant(group, fieldName, tsType);
                 return LocalDateTime.ofInstant(instant, ZoneId.of("UTC"));
