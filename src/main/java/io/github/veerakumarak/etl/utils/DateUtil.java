@@ -231,6 +231,47 @@ public class DateUtil {
         return new Timestamp(timestamp);
     }
 
+    /**
+     * Number of days from the start of the Julian calendar (Julian Day 0) to the Unix epoch (1970-01-01).
+     * Used to decode Parquet INT96 timestamps written by older engines such as Spark &lt; 3.0, which store
+     * timestamps as a 12-byte value: 8 bytes of nanoseconds-of-day followed by a 4-byte Julian day number.
+     */
+    private static final long JULIAN_DAY_OF_EPOCH = 2440588L;
+    private static final long NANOS_PER_DAY = 86_400_000_000_000L;
+
+    /**
+     * Decodes a Parquet INT96 timestamp (Julian day + nanoseconds-of-day) into a wall-clock
+     * {@link LocalDateTime}. INT96 (used by older Spark versions instead of INT64 timestamps) stores a
+     * zone-less wall-clock value, so no time zone is applied here.
+     *
+     * @param julianDay  the Julian day number (as returned by NanoTime.getJulianDay())
+     * @param nanosOfDay the nanoseconds elapsed within that day (as returned by NanoTime.getTimeOfDayNanos())
+     * @return the decoded wall-clock LocalDateTime
+     */
+    public static LocalDateTime int96ToLocalDateTime(int julianDay, long nanosOfDay) {
+        long epochDay = julianDay - JULIAN_DAY_OF_EPOCH;
+        long secondsOfDay = Math.floorDiv(nanosOfDay, 1_000_000_000L);
+        long nanoOfSecond = Math.floorMod(nanosOfDay, 1_000_000_000L);
+        LocalDate date = LocalDate.ofEpochDay(epochDay);
+        return LocalDateTime.of(date, LocalTime.ofSecondOfDay(0))
+                .plusSeconds(secondsOfDay)
+                .plusNanos(nanoOfSecond);
+    }
+
+    /**
+     * Decodes a Parquet INT96 timestamp into an {@link Instant}, interpreting its zone-less wall-clock
+     * value in the supplied time zone.
+     *
+     * @param julianDay  the Julian day number (as returned by NanoTime.getJulianDay())
+     * @param nanosOfDay the nanoseconds elapsed within that day (as returned by NanoTime.getTimeOfDayNanos())
+     * @param zoneId     the time zone used to interpret the wall-clock value (defaults to system zone if null)
+     * @return the corresponding Instant
+     */
+    public static Instant int96ToInstant(int julianDay, long nanosOfDay, ZoneId zoneId) {
+        ZoneId zone = zoneId != null ? zoneId : ZoneId.systemDefault();
+        return int96ToLocalDateTime(julianDay, nanosOfDay).atZone(zone).toInstant();
+    }
+
     public static boolean isDateTimeInRange(LocalDateTime currentDate, LocalDateTime dEffStrt, LocalDateTime dEffEnd) {
         return !currentDate.isAfter(dEffEnd) && !currentDate.isBefore(dEffStrt);
     }

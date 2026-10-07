@@ -3,6 +3,7 @@ package io.github.veerakumarak.etl.parquet.converters;
 import io.github.veerakumarak.etl.parquet.data.DataAnnotationHelper;
 import io.github.veerakumarak.etl.utils.DateUtil;
 import org.apache.parquet.example.data.Group;
+import org.apache.parquet.example.data.simple.NanoTime;
 import org.apache.parquet.io.api.Binary;
 import org.apache.parquet.schema.LogicalTypeAnnotation;
 import org.apache.parquet.schema.PrimitiveType;
@@ -22,7 +23,24 @@ public class GroupToClassConverter {
 
     private static final Logger log = LoggerFactory.getLogger(GroupToClassConverter.class);
 
+    /**
+     * Backward-compatible overload that decodes timestamps using the JVM's default time zone.
+     *
+     * @see #convert(Group, Field[], Map, boolean, ZoneId)
+     */
     public static Object[] convert(Group group, Field[] classFields, Map<String, Type> fieldsMap, boolean relaxedValidation) {
+        return convert(group, classFields, fieldsMap, relaxedValidation, ZoneId.systemDefault());
+    }
+
+    /**
+     * Converts a Parquet {@link Group} into constructor argument values for a target class.
+     *
+     * @param zoneId the time zone used to interpret timestamp columns (both INT64 and legacy INT96).
+     *               INT96 stores a wall-clock local timestamp; INT64 stores an epoch instant. The zone
+     *               determines the resulting {@code LocalDateTime}/{@code LocalDate} wall-clock value.
+     */
+    public static Object[] convert(Group group, Field[] classFields, Map<String, Type> fieldsMap, boolean relaxedValidation, ZoneId zoneId) {
+        ZoneId zone = zoneId != null ? zoneId : ZoneId.systemDefault();
         return Arrays.stream(classFields).map(field -> {
             String fieldName = DataAnnotationHelper.getName(field);
             if (!fieldsMap.containsKey(fieldName)) {
@@ -34,12 +52,12 @@ public class GroupToClassConverter {
                     throw new InternalError("parameterName missing " + fieldName);
                 }
             }
-            return fromGroup(group, fieldName, fieldsMap.get(fieldName).asPrimitiveType(), field.getType());
+            return fromGroup(group, fieldName, fieldsMap.get(fieldName).asPrimitiveType(), field.getType(), zone);
         }).toArray();
     }
 
 
-    private static Object fromGroup(Group group, String fieldName, PrimitiveType primitiveType, Class<?> targetType) {
+    private static Object fromGroup(Group group, String fieldName, PrimitiveType primitiveType, Class<?> targetType, ZoneId zoneId) {
 
         int fieldIndex = group.getType().getFieldIndex(fieldName);
         if (fieldIndex < 0 || group.getFieldRepetitionCount(fieldIndex) == 0) {
@@ -74,16 +92,21 @@ public class GroupToClassConverter {
                             throw new IllegalArgumentException("DATE logical type should be stored as INT32. Found: " + primitiveTypeName);
                 };
             }
+            // Handle INT96 (legacy Spark) timestamp -> LocalDate conversion (extract date part).
+            // INT96 is a zone-less wall-clock value, so the date part is taken directly.
+            if (primitiveTypeName == PrimitiveType.PrimitiveTypeName.INT96) {
+                return int96ToLocalDateTime(group, fieldName).toLocalDate();
+            }
             // Handle TIMESTAMP -> LocalDate conversion (extract date part from timestamp)
             if (logicalType instanceof LogicalTypeAnnotation.TimestampLogicalTypeAnnotation tsType &&
                     primitiveTypeName == PrimitiveType.PrimitiveTypeName.INT64) {
                 Instant instant = convertFieldToInstant(group, fieldName, tsType);
-                return instant.atZone(ZoneId.of("UTC")).toLocalDate();
+                return instant.atZone(zoneId).toLocalDate();
             }
             // Handle raw INT64 timestamp without logical type annotation -> LocalDate
             if (primitiveTypeName == PrimitiveType.PrimitiveTypeName.INT64 && logicalType == null) {
                 long epochMillis = group.getLong(fieldName, 0);
-                return Instant.ofEpochMilli(epochMillis).atZone(ZoneId.of("UTC")).toLocalDate();
+                return Instant.ofEpochMilli(epochMillis).atZone(zoneId).toLocalDate();
             }
             throw new IllegalArgumentException("Unsupported type for LocalDate: " + primitiveType + " with logical type: " + logicalType);
         } else if (logicalType instanceof LogicalTypeAnnotation.TimeLogicalTypeAnnotation timeType && targetType == LocalTime.class) {
@@ -108,12 +131,16 @@ public class GroupToClassConverter {
                 }
             };
         } else if (targetType == LocalDateTime.class) {
-            if (logicalType instanceof LogicalTypeAnnotation.TimestampLogicalTypeAnnotation tsType &&
+            // Handle INT96 (legacy Spark) timestamp -> LocalDateTime.
+            // INT96 stores a zone-less wall-clock value, returned directly without zone conversion.
+            if (primitiveTypeName == PrimitiveType.PrimitiveTypeName.INT96) {
+                return int96ToLocalDateTime(group, fieldName);
+            } else if (logicalType instanceof LogicalTypeAnnotation.TimestampLogicalTypeAnnotation tsType &&
                     primitiveTypeName == PrimitiveType.PrimitiveTypeName.INT64) {
                 Instant instant = convertFieldToInstant(group, fieldName, tsType);
-                return LocalDateTime.ofInstant(instant, ZoneId.of("UTC"));
+                return LocalDateTime.ofInstant(instant, zoneId);
             } else if (primitiveTypeName == PrimitiveType.PrimitiveTypeName.INT64 && logicalType == null) {
-                return DateUtil.convertEpochMiliSecToLocalDateTime(group.getLong(fieldName, 0), ZoneId.of("UTC"));
+                return DateUtil.convertEpochMiliSecToLocalDateTime(group.getLong(fieldName, 0), zoneId);
             } else {
                 throw new IllegalArgumentException("Unsupported type for LocalDateTime: " + primitiveType + " with logical type: " + logicalType);
             }
@@ -150,6 +177,17 @@ public class GroupToClassConverter {
                 }
             };
         }
+    }
+
+    /**
+     * Decodes a Parquet INT96 timestamp field (written by older engines such as Spark &lt; 3.0) into a
+     * wall-clock LocalDateTime. INT96 encodes nanoseconds-of-day plus a Julian day number; NanoTime handles
+     * the byte-level decoding.
+     */
+    private static LocalDateTime int96ToLocalDateTime(Group group, String fieldName) {
+        Binary int96 = group.getInt96(fieldName, 0);
+        NanoTime nanoTime = NanoTime.fromBinary(int96);
+        return DateUtil.int96ToLocalDateTime(nanoTime.getJulianDay(), nanoTime.getTimeOfDayNanos());
     }
 
     private static Instant convertFieldToInstant(Group group, String fieldName, LogicalTypeAnnotation.TimestampLogicalTypeAnnotation tsType) {

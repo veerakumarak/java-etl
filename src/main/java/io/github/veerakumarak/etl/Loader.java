@@ -10,6 +10,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.sql.Connection;
+import java.time.ZoneId;
 
 public class Loader {
 
@@ -33,6 +34,12 @@ public class Loader {
 
     public interface WriterStep {
         Result<LoadResult> fromParquet(String writePath);
+
+        /**
+         * Loads from a Parquet file, interpreting timestamp columns (INT64 and legacy INT96) in the
+         * given time zone.
+         */
+        Result<LoadResult> fromParquet(String writePath, ZoneId zoneId);
     }
 
     private static class Builder implements TableNameStep, TruncateStep, BatchSizeStep, WriterStep {
@@ -42,6 +49,7 @@ public class Loader {
         private boolean truncate;
         private int batchSize;
         private String readPath;
+        private ZoneId zoneId = ZoneId.systemDefault();
 
         public Builder(String jobName, IDataSource dataSource) {
             this.jobName = jobName;
@@ -72,6 +80,13 @@ public class Loader {
             return execute();
         }
 
+        @Override
+        public Result<LoadResult> fromParquet(String readPath, ZoneId zoneId) {
+            this.readPath = readPath;
+            this.zoneId = zoneId != null ? zoneId : ZoneId.systemDefault();
+            return execute();
+        }
+
         private Result<LoadResult> execute() {
             return Result.of(() -> {
                 if (!RegexUtil.matches("^[a-zA-Z_][a-zA-Z0-9_$]*$", tableName)) {
@@ -88,7 +103,7 @@ public class Loader {
 
                         // Pass the existing connection to the reader helper
                         long count = ParquetDataBaseHelper.writeBatched(
-                                readPath, conn, tableName, batchSize
+                                readPath, conn, tableName, batchSize, zoneId
                         ).orElseThrow();
 
                         conn.commit(); // Only commit if everything worked

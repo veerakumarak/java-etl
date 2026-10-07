@@ -1,10 +1,12 @@
 package io.github.veerakumarak.etl.parquet;
 
 import io.github.veerakumarak.etl.source.ParquetReaderHelper;
+import io.github.veerakumarak.etl.utils.DateUtil;
 import io.github.veerakumarak.fp.Failure;
 import io.github.veerakumarak.fp.Result;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.parquet.example.data.Group;
+import org.apache.parquet.example.data.simple.NanoTime;
 import org.apache.parquet.hadoop.ParquetReader;
 import org.apache.parquet.schema.LogicalTypeAnnotation;
 import org.apache.parquet.schema.MessageType;
@@ -14,6 +16,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.sql.*;
+import java.time.ZoneId;
 import java.util.List;
 
 public class ParquetDataBaseHelper {
@@ -47,6 +50,10 @@ public class ParquetDataBaseHelper {
                     return Types.INTEGER;
                 case INT64:
                     return Types.BIGINT;
+                case INT96:
+                    // INT96 has no logical type annotation but always represents a timestamp
+                    // (legacy format written by older engines such as Spark < 3.0).
+                    return Types.TIMESTAMP;
                 case DOUBLE:
                     return Types.DOUBLE;
                 case FLOAT:
@@ -65,7 +72,7 @@ public class ParquetDataBaseHelper {
         }
     }
 
-    private static Object getValueOrNull(Group group, String fieldName, int sqlType){
+    private static Object getValueOrNull(Group group, String fieldName, int sqlType, Type field, ZoneId zoneId){
         if(group.getFieldRepetitionCount(fieldName)==0){
             return null;
         }
@@ -76,6 +83,14 @@ public class ParquetDataBaseHelper {
                 return java.sql.Date.valueOf(java.time.LocalDate.ofEpochDay(daysFromEpoch));
 
             case Types.TIMESTAMP:
+                // Legacy INT96 timestamps (e.g. older Spark) encode Julian day + nanos-of-day as a
+                // zone-less wall-clock value; interpret it in the configured zone to build the instant.
+                if (field.isPrimitive()
+                        && field.asPrimitiveType().getPrimitiveTypeName() == PrimitiveType.PrimitiveTypeName.INT96) {
+                    NanoTime nanoTime = NanoTime.fromBinary(group.getInt96(fieldName, 0));
+                    return java.sql.Timestamp.from(
+                            DateUtil.int96ToInstant(nanoTime.getJulianDay(), nanoTime.getTimeOfDayNanos(), zoneId));
+                }
                 long epochMillis = group.getLong(fieldName, 0);
                 return java.sql.Timestamp.from(java.time.Instant.ofEpochMilli(epochMillis));
 
@@ -121,7 +136,24 @@ public class ParquetDataBaseHelper {
             Type f,
             Integer sqlType
     ){}
+    /**
+     * Backward-compatible overload that decodes timestamp columns using the JVM default time zone.
+     *
+     * @see #writeBatched(String, Connection, String, Integer, ZoneId)
+     */
     public static Result<Long> writeBatched(String filePath, Connection connection, String tableName, Integer batchSize) {
+        return writeBatched(filePath, connection, tableName, batchSize, ZoneId.systemDefault());
+    }
+
+    /**
+     * Streams a Parquet file into a database table in batches.
+     *
+     * @param zoneId time zone used to interpret timestamp columns. INT64 timestamps are epoch instants
+     *               (zone-independent); legacy INT96 timestamps are zone-less wall-clock values and are
+     *               interpreted in this zone when building {@code java.sql.Timestamp} values.
+     */
+    public static Result<Long> writeBatched(String filePath, Connection connection, String tableName, Integer batchSize, ZoneId zoneId) {
+        ZoneId zone = zoneId != null ? zoneId : ZoneId.systemDefault();
         return Result.of(() -> {
             Configuration conf = ParquetAwsManager.getConfiguration();
 
@@ -143,7 +175,7 @@ public class ParquetDataBaseHelper {
 
                 // 3. Stream through the file
                 while ((group = reader.read()) != null) {
-                    writeOne(pstmt, group, fieldMetas).orThrow();
+                    writeOne(pstmt, group, fieldMetas, zone).orThrow();
                     count++;
 
                     // Execute batch based on user-defined size
@@ -164,11 +196,11 @@ public class ParquetDataBaseHelper {
         });
     }
 
-    private static Failure writeOne(PreparedStatement pstmt, Group group, List<FieldMeta> metas) {
+    private static Failure writeOne(PreparedStatement pstmt, Group group, List<FieldMeta> metas, ZoneId zoneId) {
         return Failure.of(() -> {
             for (int i = 0; i < metas.size(); i++) {
                 FieldMeta meta = metas.get(i);
-                Object value = getValueOrNull(group, meta.name(), meta.sqlType());
+                Object value = getValueOrNull(group, meta.name(), meta.sqlType(), meta.f(), zoneId);
                 pstmt.setObject(i + 1, value, meta.sqlType());
             }
             pstmt.addBatch();
