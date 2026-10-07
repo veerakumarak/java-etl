@@ -39,7 +39,23 @@ public class MessageTypeConverter {
             Map.entry(LocalDate.class, (name, b) -> b.optional(PrimitiveType.PrimitiveTypeName.INT32).as(LogicalTypeAnnotation.dateType()).named(name))
     );
 
+    /**
+     * Backward-compatible overload that writes timestamps as INT64 (timestamp logical type, MICROS).
+     *
+     * @see #fromClass(Class, boolean)
+     */
     public static MessageType fromClass(Class<?> tClass) {
+        return fromClass(tClass, false);
+    }
+
+    /**
+     * Builds a Parquet schema from a class.
+     *
+     * @param int96Timestamps when {@code true}, {@code LocalDateTime} fields are written as the legacy
+     *                        INT96 primitive (for compatibility with older Spark readers) instead of
+     *                        INT64. INT96 is deprecated in the Parquet spec, so this is opt-in.
+     */
+    public static MessageType fromClass(Class<?> tClass, boolean int96Timestamps) {
         Types.MessageTypeBuilder builder = Types.buildMessage();
 
         for (Field field : tClass.getDeclaredFields()) {
@@ -49,6 +65,11 @@ public class MessageTypeConverter {
             }
             String name = DataAnnotationHelper.getName(field);
             Class<?> type = field.getType();
+            // Legacy INT96 timestamp handling takes precedence over the default INT64 handler.
+            if (int96Timestamps && type == LocalDateTime.class) {
+                builder.optional(PrimitiveType.PrimitiveTypeName.INT96).named(name);
+                continue;
+            }
             BiConsumer<String, Types.MessageTypeBuilder> handler = TYPE_HANDLERS.get(type);
             if (Objects.isNull(handler)) {
                 throw new IllegalArgumentException("Unsupported record component type: " + type.getName());
@@ -58,7 +79,23 @@ public class MessageTypeConverter {
         return builder.named(tClass.getSimpleName());
     }
 
+    /**
+     * Backward-compatible overload that writes TIMESTAMP columns as INT64 (timestamp logical type, MICROS).
+     *
+     * @see #fromResultSet(String, ResultSetMetaData, boolean)
+     */
     public static Result<MessageType> fromResultSet(String tableName, ResultSetMetaData metaData) {
+        return fromResultSet(tableName, metaData, false);
+    }
+
+    /**
+     * Builds a Parquet schema from a {@link ResultSetMetaData}.
+     *
+     * @param int96Timestamps when {@code true}, SQL TIMESTAMP columns are written as the legacy INT96
+     *                        primitive (for compatibility with older Spark readers) instead of INT64.
+     *                        INT96 is deprecated in the Parquet spec, so this is opt-in.
+     */
+    public static Result<MessageType> fromResultSet(String tableName, ResultSetMetaData metaData, boolean int96Timestamps) {
         return Result.of(() -> {
             int columnCount = metaData.getColumnCount();
 
@@ -174,12 +211,20 @@ public class MessageTypeConverter {
                                 .named(columnName));
                         break;
                     case java.sql.Types.TIMESTAMP:
-                        builder.addField((nullable == ResultSetMetaData.columnNoNulls
-                                ? Types.required(PrimitiveType.PrimitiveTypeName.INT64).as(
-                                LogicalTypeAnnotation.timestampType(false, LogicalTypeAnnotation.TimeUnit.MICROS))
-                                : Types.optional(PrimitiveType.PrimitiveTypeName.INT64).as(
-                                LogicalTypeAnnotation.timestampType(false, LogicalTypeAnnotation.TimeUnit.MICROS)))
-                                .named(columnName));
+                        if (int96Timestamps) {
+                            // Legacy INT96 timestamp (no logical annotation), matching older Spark output.
+                            builder.addField((nullable == ResultSetMetaData.columnNoNulls
+                                    ? Types.required(PrimitiveType.PrimitiveTypeName.INT96)
+                                    : Types.optional(PrimitiveType.PrimitiveTypeName.INT96))
+                                    .named(columnName));
+                        } else {
+                            builder.addField((nullable == ResultSetMetaData.columnNoNulls
+                                    ? Types.required(PrimitiveType.PrimitiveTypeName.INT64).as(
+                                    LogicalTypeAnnotation.timestampType(false, LogicalTypeAnnotation.TimeUnit.MICROS))
+                                    : Types.optional(PrimitiveType.PrimitiveTypeName.INT64).as(
+                                    LogicalTypeAnnotation.timestampType(false, LogicalTypeAnnotation.TimeUnit.MICROS)))
+                                    .named(columnName));
+                        }
                         break;
                     case java.sql.Types.DECIMAL:
                     case java.sql.Types.NUMERIC:
