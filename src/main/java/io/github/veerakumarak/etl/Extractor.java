@@ -11,6 +11,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.sql.*;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 
@@ -37,15 +38,33 @@ public class Extractor {
     public interface FetchSizeStep {
         WriterStep withFetchSize(int fetchSize);
 
+        /**
+         * Optional: write Parquet TIMESTAMP columns in the legacy INT96 format (for older Spark readers)
+         * instead of INT64, interpreting timestamps in the given time zone. Opt-in; INT96 is deprecated.
+         * Ignored for CSV output.
+         */
+        WriterStep withInt96Timestamps(boolean int96Timestamps, ZoneId zoneId);
+
         Result<ExtractResult> toCsv(String writePath);
 
         Result<ExtractResult> toParquet(String writePath);
+
+        Result<ExtractResult> toParquet(String writePath, boolean int96Timestamps, ZoneId zoneId);
     }
 
     public interface WriterStep {
+        /**
+         * Optional: write Parquet TIMESTAMP columns in the legacy INT96 format (for older Spark readers)
+         * instead of INT64, interpreting timestamps in the given time zone. Opt-in; INT96 is deprecated.
+         * Ignored for CSV output.
+         */
+        WriterStep withInt96Timestamps(boolean int96Timestamps, ZoneId zoneId);
+
         Result<ExtractResult> toCsv(String writePath);
 
         Result<ExtractResult> toParquet(String writePath);
+
+        Result<ExtractResult> toParquet(String writePath, boolean int96Timestamps, ZoneId zoneId);
     }
 
     private static class Builder implements QueryProviderStep, ParametersStep, PartitionKeysStep, FetchSizeStep, WriterStep {
@@ -56,11 +75,15 @@ public class Extractor {
         private List<String> partitionKeys;
         private int fetchSize;
         private String writePath;
+        private boolean int96Timestamps;
+        private ZoneId zoneId;
 
         public Builder(String jobName, IDataSource dataSource) {
             this.jobName = jobName;
             this.dataSource = dataSource;
             this.fetchSize = 1;
+            this.int96Timestamps = false;
+            this.zoneId = ZoneId.systemDefault();
         }
 
         @Override
@@ -88,8 +111,23 @@ public class Extractor {
         }
 
         @Override
+        public WriterStep withInt96Timestamps(boolean int96Timestamps, ZoneId zoneId) {
+            this.int96Timestamps = int96Timestamps;
+            this.zoneId = zoneId != null ? zoneId : ZoneId.systemDefault();
+            return this;
+        }
+
+        @Override
         public Result<ExtractResult> toParquet(String writePath) {
             this.writePath = writePath;
+            return execute(FileType.PARQUET);
+        }
+
+        @Override
+        public Result<ExtractResult> toParquet(String writePath, boolean int96Timestamps, ZoneId zoneId) {
+            this.writePath = writePath;
+            this.int96Timestamps = int96Timestamps;
+            this.zoneId = zoneId != null ? zoneId : ZoneId.systemDefault();
             return execute(FileType.PARQUET);
         }
 
@@ -109,7 +147,7 @@ public class Extractor {
                             ps.setFetchSize(fetchSize);
 
                             try (ResultSet rs = ps.executeQuery()) {
-                                return DataSink.write(writePath, fileType, jobName, rs, fetchSize, partitionKeys)
+                                return DataSink.write(writePath, fileType, jobName, rs, fetchSize, partitionKeys, int96Timestamps, zoneId)
                                         .map(ExtractResult::new)
                                         .get();
                             }
