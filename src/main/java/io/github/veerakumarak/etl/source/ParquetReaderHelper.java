@@ -23,6 +23,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
+import java.time.ZoneId;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -101,7 +102,21 @@ public class ParquetReaderHelper {
         });
     }
 */
+    /**
+     * Backward-compatible overload that decodes timestamp columns using the JVM default time zone.
+     *
+     * @see #readStream(String, Class, ZoneId)
+     */
     public static <T> Result<Stream<T>> readStream(String filePath, Class<T> tClass) {
+        return readStream(filePath, tClass, ZoneId.systemDefault());
+    }
+
+    /**
+     * Streams records from a Parquet file into instances of {@code tClass}.
+     *
+     * @param zoneId time zone used to interpret timestamp columns (INT64 and legacy INT96).
+     */
+    public static <T> Result<Stream<T>> readStream(String filePath, Class<T> tClass, ZoneId zoneId) {
         return Result.of(() -> {
             Configuration configuration = ParquetAwsManager.getConfiguration();
 
@@ -117,7 +132,7 @@ public class ParquetReaderHelper {
             validateFields(classFields, parquetFields, tClass, false);
             return readStream(filePath).orElseThrow().map(group -> {
                 try {
-                    Object[] values = GroupToClassConverter.convert(group, classFields, fieldsMap, false);
+                    Object[] values = GroupToClassConverter.convert(group, classFields, fieldsMap, false, zoneId);
                     return (T) constructor.newInstance(values);
                 } catch (Exception e) {
                     throw new InternalFailure("Parquet stream read failed: " + e);
@@ -126,8 +141,26 @@ public class ParquetReaderHelper {
         });
     }
 
+    /**
+     * Backward-compatible overload that decodes timestamp columns using the JVM default time zone.
+     *
+     * @see #readList(String, Class, ZoneId)
+     */
     public static <T> Result<List<T>> readList(String filePath, Class<T> tClass) {
         return readStream(filePath, tClass).map(stream -> {
+            try (stream) {
+                return stream.toList();
+            }
+        });
+    }
+
+    /**
+     * Reads all records from a Parquet file into a list of {@code tClass} instances.
+     *
+     * @param zoneId time zone used to interpret timestamp columns (INT64 and legacy INT96).
+     */
+    public static <T> Result<List<T>> readList(String filePath, Class<T> tClass, ZoneId zoneId) {
+        return readStream(filePath, tClass, zoneId).map(stream -> {
             try (stream) {
                 return stream.toList();
             }

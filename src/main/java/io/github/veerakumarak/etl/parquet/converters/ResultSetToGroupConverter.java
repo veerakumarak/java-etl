@@ -130,8 +130,8 @@ public class ResultSetToGroupConverter {
                         if (!rs.wasNull() && ts != null) {
                             long epochSecond = ts.getTime() / 1_000L;
                             int nanos = ts.getNanos();
-                            long epochNanos = Math.addExact(Math.multiplyExact(epochSecond, 1_000_000_000L), nanos);
-                            group.add(columnName, epochNanos);
+                            long epochMicros = Math.addExact(Math.multiplyExact(epochSecond, 1_000_000L), nanos / 1_000L);
+                            group.add(columnName, epochMicros);
                         }
                         break;
                     case Types.DECIMAL:

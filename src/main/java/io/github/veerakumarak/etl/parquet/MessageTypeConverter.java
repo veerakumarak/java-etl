@@ -34,7 +34,7 @@ public class MessageTypeConverter {
             Map.entry(Float.class, (name, b) -> b.optional(PrimitiveType.PrimitiveTypeName.FLOAT).named(name)),
             Map.entry(Boolean.class, (name, b) -> b.optional(PrimitiveType.PrimitiveTypeName.BOOLEAN).named(name)),
             Map.entry(Character.class, (name, b) -> b.optional(PrimitiveType.PrimitiveTypeName.BINARY).as(LogicalTypeAnnotation.stringType()).named(name)),
-            Map.entry(LocalDateTime.class, (name, b) -> b.optional(PrimitiveType.PrimitiveTypeName.INT64).as(LogicalTypeAnnotation.timestampType(false, LogicalTypeAnnotation.TimeUnit.MILLIS)).named(name)),
+            Map.entry(LocalDateTime.class, (name, b) -> b.optional(PrimitiveType.PrimitiveTypeName.INT64).as(LogicalTypeAnnotation.timestampType(false, LogicalTypeAnnotation.TimeUnit.MICROS)).named(name)),
             Map.entry(LocalTime.class, (name, b) -> b.optional(PrimitiveType.PrimitiveTypeName.INT32).as(LogicalTypeAnnotation.timeType(false, LogicalTypeAnnotation.TimeUnit.MILLIS)).named(name)),
             Map.entry(LocalDate.class, (name, b) -> b.optional(PrimitiveType.PrimitiveTypeName.INT32).as(LogicalTypeAnnotation.dateType()).named(name))
     );
@@ -176,9 +176,9 @@ public class MessageTypeConverter {
                     case java.sql.Types.TIMESTAMP:
                         builder.addField((nullable == ResultSetMetaData.columnNoNulls
                                 ? Types.required(PrimitiveType.PrimitiveTypeName.INT64).as(
-                                LogicalTypeAnnotation.timestampType(false, LogicalTypeAnnotation.TimeUnit.NANOS))
+                                LogicalTypeAnnotation.timestampType(false, LogicalTypeAnnotation.TimeUnit.MICROS))
                                 : Types.optional(PrimitiveType.PrimitiveTypeName.INT64).as(
-                                LogicalTypeAnnotation.timestampType(false, LogicalTypeAnnotation.TimeUnit.NANOS)))
+                                LogicalTypeAnnotation.timestampType(false, LogicalTypeAnnotation.TimeUnit.MICROS)))
                                 .named(columnName));
                         break;
                     case java.sql.Types.DECIMAL:
