@@ -272,6 +272,35 @@ public class DateUtil {
         return int96ToLocalDateTime(julianDay, nanosOfDay).atZone(zone).toInstant();
     }
 
+    /**
+     * Encodes a wall-clock {@link LocalDateTime} into the two components of a Parquet INT96 timestamp:
+     * the Julian day number and the nanoseconds elapsed within that day. This is the inverse of
+     * {@link #int96ToLocalDateTime(int, long)} and is used to write timestamps in the legacy INT96 format
+     * expected by older Spark readers. No time zone is applied, as INT96 is a zone-less wall-clock value.
+     *
+     * @param ldt the wall-clock timestamp to encode
+     * @return a {@code long[]} of length 2: index 0 is the Julian day, index 1 is the nanoseconds-of-day
+     */
+    public static long[] localDateTimeToInt96(LocalDateTime ldt) {
+        long epochDay = ldt.toLocalDate().toEpochDay();
+        long julianDay = epochDay + JULIAN_DAY_OF_EPOCH;
+        long nanosOfDay = ldt.toLocalTime().toNanoOfDay();
+        return new long[]{julianDay, nanosOfDay};
+    }
+
+    /**
+     * Encodes an {@link Instant} into Parquet INT96 components (Julian day + nanoseconds-of-day),
+     * interpreting the instant in the supplied time zone to obtain the wall-clock value to store.
+     *
+     * @param instant the instant to encode
+     * @param zoneId  the time zone used to derive the wall-clock value (defaults to system zone if null)
+     * @return a {@code long[]} of length 2: index 0 is the Julian day, index 1 is the nanoseconds-of-day
+     */
+    public static long[] instantToInt96(Instant instant, ZoneId zoneId) {
+        ZoneId zone = zoneId != null ? zoneId : ZoneId.systemDefault();
+        return localDateTimeToInt96(LocalDateTime.ofInstant(instant, zone));
+    }
+
     public static boolean isDateTimeInRange(LocalDateTime currentDate, LocalDateTime dEffStrt, LocalDateTime dEffEnd) {
         return !currentDate.isAfter(dEffEnd) && !currentDate.isBefore(dEffStrt);
     }

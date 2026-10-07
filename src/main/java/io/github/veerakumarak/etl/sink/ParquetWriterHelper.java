@@ -24,6 +24,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
+import java.time.ZoneId;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -63,6 +64,17 @@ public class ParquetWriterHelper {
     }
 
     protected static Result<FileMetaData> writeBatched(String writePath, String tableName, ResultSet resultSet, Integer batchSize, List<String> partitionKeys) {
+        return writeBatched(writePath, tableName, resultSet, batchSize, partitionKeys, false, ZoneId.systemDefault());
+    }
+
+    /**
+     * Streams a {@link ResultSet} into Parquet file(s).
+     *
+     * @param int96Timestamps when {@code true}, TIMESTAMP columns are written as the legacy INT96 format
+     *                        (for older Spark readers) instead of INT64. Opt-in; INT96 is deprecated.
+     * @param zoneId          time zone used to encode INT96 timestamps (ignored when INT64 is used).
+     */
+    protected static Result<FileMetaData> writeBatched(String writePath, String tableName, ResultSet resultSet, Integer batchSize, List<String> partitionKeys, boolean int96Timestamps, ZoneId zoneId) {
         return Result.of(() -> {
             if (Objects.isNull(resultSet)) {
                 throw new InternalFailure("ResultSet is null");
@@ -71,8 +83,9 @@ public class ParquetWriterHelper {
                 throw new InvalidRequest("Batch size must be positive");
             }
 
+            ZoneId zone = zoneId != null ? zoneId : ZoneId.systemDefault();
             ResultSetMetaData metaData = resultSet.getMetaData();
-            MessageType schema = MessageTypeConverter.fromResultSet(tableName, metaData)
+            MessageType schema = MessageTypeConverter.fromResultSet(tableName, metaData, int96Timestamps)
                     .orElseThrow(() -> new InternalFailure("Could not get schema from result set"));
 
             Pair<MessageType, MessageType> schemas = excludeFields(schema, partitionKeys);
@@ -81,7 +94,7 @@ public class ParquetWriterHelper {
             Map<String, Long> partitionCounts = new HashMap<>();
             List<Pair<Group,Group>> batch = new ArrayList<>(batchSize);
             while (resultSet.next()) {
-                Pair<Group, Group> groups = ResultSetToGroupConverter.convert(schemas, metaData, resultSet, new HashSet<>(partitionKeys))
+                Pair<Group, Group> groups = ResultSetToGroupConverter.convert(schemas, metaData, resultSet, new HashSet<>(partitionKeys), zone)
                         .orElseThrow(() -> new InternalFailure("Could not get group from result set"));
                 batch.add(groups);
                 if (batch.size() >= batchSize) {
@@ -129,6 +142,17 @@ public class ParquetWriterHelper {
     }
 
     protected static <T> Result<FileMetaData> writeBatched(String writePath, String tableName, Integer batchSize, Stream<T> tStream, Class<T> tClass, List<String> partitionKeys) {
+        return writeBatched(writePath, tableName, batchSize, tStream, tClass, partitionKeys, false, ZoneId.systemDefault());
+    }
+
+    /**
+     * Streams POJOs into Parquet file(s).
+     *
+     * @param int96Timestamps when {@code true}, {@code LocalDateTime} fields are written as the legacy
+     *                        INT96 format (for older Spark readers) instead of INT64. Opt-in; INT96 is deprecated.
+     * @param zoneId          time zone used to encode INT96 timestamps (ignored when INT64 is used).
+     */
+    protected static <T> Result<FileMetaData> writeBatched(String writePath, String tableName, Integer batchSize, Stream<T> tStream, Class<T> tClass, List<String> partitionKeys, boolean int96Timestamps, ZoneId zoneId) {
         return Result.of(() -> {
             if (Objects.isNull(tStream)) {
                 throw new InternalFailure("Data stream is null");
@@ -137,7 +161,8 @@ public class ParquetWriterHelper {
                 throw new InvalidRequest("Batch size must be positive");
             }
 
-            MessageType schema = MessageTypeConverter.fromClass(tClass);
+            ZoneId zone = zoneId != null ? zoneId : ZoneId.systemDefault();
+            MessageType schema = MessageTypeConverter.fromClass(tClass, int96Timestamps);
 
             Pair<MessageType, MessageType> schemas = excludeFields(schema, partitionKeys);
 
@@ -149,7 +174,7 @@ public class ParquetWriterHelper {
             Iterator<T> iterator = tStream.iterator();
             while (iterator.hasNext()) {
                 T tDatum = iterator.next();
-                Pair<Group, Group> groups = ClassToGroupConverter.toGroup(tDatum, schemas, new HashSet<>(partitionKeys))
+                Pair<Group, Group> groups = ClassToGroupConverter.toGroup(tDatum, schemas, new HashSet<>(partitionKeys), zone)
                         .orElseThrow(() -> new InternalFailure("Could not get group from the data stream"));
                 batch.add(groups);
                 if (batch.size() >= batchSize) {

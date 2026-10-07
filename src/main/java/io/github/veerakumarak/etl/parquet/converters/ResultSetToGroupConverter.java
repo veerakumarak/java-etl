@@ -1,18 +1,22 @@
 package io.github.veerakumarak.etl.parquet.converters;
 
 import io.github.veerakumarak.etl.parquet.SqlTypeInferrer;
+import io.github.veerakumarak.etl.utils.DateUtil;
 import io.github.veerakumarak.fp.Pair;
 import io.github.veerakumarak.fp.Result;
 import org.apache.parquet.example.data.Group;
+import org.apache.parquet.example.data.simple.NanoTime;
 import org.apache.parquet.example.data.simple.SimpleGroup;
 import org.apache.parquet.io.api.Binary;
 import org.apache.parquet.schema.MessageType;
+import org.apache.parquet.schema.PrimitiveType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.sql.*;
 import java.time.LocalTime;
+import java.time.ZoneId;
 import java.time.temporal.ChronoField;
 import java.util.Objects;
 import java.util.Set;
@@ -21,12 +25,30 @@ public class ResultSetToGroupConverter {
 
     private static final Logger log = LoggerFactory.getLogger(ResultSetToGroupConverter.class);
 
+    /**
+     * Backward-compatible overload that encodes any INT96 timestamp columns using the JVM default time zone.
+     *
+     * @see #convert(Pair, ResultSetMetaData, ResultSet, Set, ZoneId)
+     */
     public static Result<Pair<Group,Group>> convert(Pair<MessageType, MessageType> schemas, ResultSetMetaData metadata, ResultSet rs, Set<String> partitionColumns) {
+        return convert(schemas, metadata, rs, partitionColumns, ZoneId.systemDefault());
+    }
+
+    /**
+     * Converts the current {@link ResultSet} row into Parquet data/partition groups.
+     *
+     * @param zoneId time zone used only when a TIMESTAMP column maps to a legacy INT96 field, to convert
+     *               the epoch-based {@code java.sql.Timestamp} into the stored wall-clock value. Ignored
+     *               for INT64 timestamps.
+     */
+    public static Result<Pair<Group,Group>> convert(Pair<MessageType, MessageType> schemas, ResultSetMetaData metadata, ResultSet rs, Set<String> partitionColumns, ZoneId zoneId) {
         return Result.of(() -> {
 
             if (Objects.isNull(schemas.getSecond()) && !partitionColumns.isEmpty()) {
                 throw new IllegalArgumentException("Partition columns are specified but no partition schema is provided");
             }
+
+            ZoneId zone = zoneId != null ? zoneId : ZoneId.systemDefault();
 
             Group dataGroup = new SimpleGroup(schemas.getFirst());
             Group partitionGroup = Objects.nonNull(schemas.getSecond()) ? new SimpleGroup(schemas.getSecond()): null;
@@ -128,10 +150,17 @@ public class ResultSetToGroupConverter {
                     case Types.TIMESTAMP:
                         Timestamp ts = rs.getTimestamp(columnName);
                         if (!rs.wasNull() && ts != null) {
-                            long epochSecond = ts.getTime() / 1_000L;
-                            int nanos = ts.getNanos();
-                            long epochMicros = Math.addExact(Math.multiplyExact(epochSecond, 1_000_000L), nanos / 1_000L);
-                            group.add(columnName, epochMicros);
+                            if (isInt96(group, columnName)) {
+                                // Legacy INT96: interpret the instant in the configured zone and store
+                                // the resulting wall-clock value as Julian day + nanos-of-day.
+                                long[] int96 = DateUtil.instantToInt96(ts.toInstant(), zone);
+                                group.add(columnName, new NanoTime((int) int96[0], int96[1]).toBinary());
+                            } else {
+                                long epochSecond = ts.getTime() / 1_000L;
+                                int nanos = ts.getNanos();
+                                long epochMicros = Math.addExact(Math.multiplyExact(epochSecond, 1_000_000L), nanos / 1_000L);
+                                group.add(columnName, epochMicros);
+                            }
                         }
                         break;
                     case Types.DECIMAL:
@@ -167,5 +196,14 @@ public class ResultSetToGroupConverter {
             }
             return Pair.of(dataGroup, partitionGroup);
         });
+    }
+
+    private static boolean isInt96(Group group, String columnName) {
+        if (!group.getType().containsField(columnName)) {
+            return false;
+        }
+        org.apache.parquet.schema.Type fieldType = group.getType().getType(columnName);
+        return fieldType.isPrimitive()
+                && fieldType.asPrimitiveType().getPrimitiveTypeName() == PrimitiveType.PrimitiveTypeName.INT96;
     }
 }

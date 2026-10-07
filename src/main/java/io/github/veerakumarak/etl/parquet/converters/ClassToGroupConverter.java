@@ -7,6 +7,7 @@ import io.github.veerakumarak.fp.Pair;
 import io.github.veerakumarak.fp.Result;
 import io.github.veerakumarak.fp.failures.InternalFailure;
 import org.apache.parquet.example.data.Group;
+import org.apache.parquet.example.data.simple.NanoTime;
 import org.apache.parquet.example.data.simple.SimpleGroup;
 import org.apache.parquet.example.data.simple.SimpleGroupFactory;
 import org.apache.parquet.io.api.Binary;
@@ -39,12 +40,29 @@ public class ClassToGroupConverter {
 //                .toList();
 //    }
 
+    /**
+     * Backward-compatible overload that encodes any INT96 timestamp fields using the JVM default time zone.
+     *
+     * @see #toGroup(Object, Pair, Set, ZoneId)
+     */
     public static <T> Result<Pair<Group, Group>> toGroup(T t, Pair<MessageType, MessageType> schemas, Set<String> partitionColumns) {
+        return toGroup(t, schemas, partitionColumns, ZoneId.systemDefault());
+    }
+
+    /**
+     * Converts an object into Parquet data/partition groups.
+     *
+     * @param zoneId time zone used only when a {@code LocalDateTime} field maps to a legacy INT96 column,
+     *               to derive the Julian-day + nanos-of-day encoding. Ignored for INT64 timestamps.
+     */
+    public static <T> Result<Pair<Group, Group>> toGroup(T t, Pair<MessageType, MessageType> schemas, Set<String> partitionColumns, ZoneId zoneId) {
         return Result.of(() -> {
 
             if (Objects.isNull(schemas.getSecond()) && !partitionColumns.isEmpty()) {
                 throw new IllegalArgumentException("Partition columns are specified but no partition schema is provided");
             }
+
+            ZoneId zone = zoneId != null ? zoneId : ZoneId.systemDefault();
 
             Group dataGroup = new SimpleGroup(schemas.getFirst());
             Group partitionGroup = Objects.nonNull(schemas.getSecond()) ? new SimpleGroup(schemas.getSecond()): null;
@@ -86,7 +104,7 @@ public class ClassToGroupConverter {
                     } else if (value instanceof LocalDate ld) {
                         group.append(name, (int) ld.toEpochDay());
                     } else if (value instanceof LocalDateTime ldt) {
-                        appendLocalDateTime(group, name, ldt);
+                        appendLocalDateTime(group, name, ldt, zone);
                     }
                     // Java 21
 //                switch (value) {
@@ -132,12 +150,21 @@ public class ClassToGroupConverter {
         }
     }
 
-    private static void appendLocalDateTime(Group group, String fieldName, LocalDateTime ldt) {
+    private static void appendLocalDateTime(Group group, String fieldName, LocalDateTime ldt, ZoneId zoneId) {
         if (!group.getType().containsField(fieldName)) {
             return;
         }
 
         Type fieldType = group.getType().getType(fieldName);
+
+        // Legacy INT96 timestamp (e.g. for older Spark readers): encode as Julian day + nanos-of-day.
+        if (fieldType.isPrimitive()
+                && fieldType.asPrimitiveType().getPrimitiveTypeName() == PrimitiveType.PrimitiveTypeName.INT96) {
+            long[] int96 = DateUtil.localDateTimeToInt96(ldt);
+            group.append(fieldName, new NanoTime((int) int96[0], int96[1]).toBinary());
+            return;
+        }
+
         LogicalTypeAnnotation logicalType = fieldType.getLogicalTypeAnnotation();
         Instant instant = ldt.toInstant(ZoneOffset.UTC);
 
